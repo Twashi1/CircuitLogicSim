@@ -5,7 +5,7 @@ function onClick() {
 }
 
 function onReady() {
-    document.getElementById("submit").addEventListener("click", onClick);
+    
 }
 
 document.addEventListener("DOMContentLoaded", onReady);
