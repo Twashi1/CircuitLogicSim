@@ -53,7 +53,6 @@ const NOT_GATE = {
 };
 
 const CIRCUIT_REPRESENTATION = {
-    "name": "",
     "state": undefined,
     "inputs": [],
     "outputs": [],

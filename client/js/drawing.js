@@ -11,6 +11,26 @@ document.addEventListener("DOMContentLoaded", () => {
         ctx.fillRect(0, 0, width, height);
     }
 
+    /*
+    Expecting following fields for each circuit:
+    logicalRepresentation : CIRCUIT_REPRESENTATION,
+    name : str,
+    inputLabels : str,
+    outputLabels : str,
+    color : str,
+    position : [num, num],
+    links: [
+        {"circuit": circuitIndex},
+        {"input": inputIndex},
+        {"output": outputIndex}
+    ]
+    */
+
+    let circuits = [];
+    function drawCircuits() {
+
+    }
+
     function draw() {
         clearScreen();
     }
