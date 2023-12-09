@@ -5,16 +5,31 @@
 	<meta charset="UTF-8"> 
 	<meta http-equiv="X-UA-Compatible" content="IE=edge"> 
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link rel="stylesheet" href="styles.css">
+	<link rel="stylesheet" href="ns.css">
 	
 	<title>LogicSim</title>
 </head> 
 
 <body>
-	<h1>Testing</h1>
-	<canvas id="canvas" width="700" height="700"></canvas>
-	<script src="script.js"></script> 
-	<script src="js/drawing.js"></script>
+	<h1>LogicSim</h1>
+	<button id="circuitButton">Get circuit</button>
+	<button id="saveCircuitButton">Save circuit</button>
+	<input type="text" id="circuitNameInput" placeholder="Circuit name" maxlength=16>
+
+	<div class="canvasContainerDiv">
+		<div class="circuitAreaDiv">
+			<div class="canvasBorder" id="canvasBorder">
+				<canvas id="canvas"></canvas>
+			</div>
+		</div>
+		<div class="paletteDiv">
+			<button id="paletteButton" class="paletteButton" data-circuittype="0">AND</button>
+			<button id="paletteButton" class="paletteButton" data-circuittype="1">OR</button>
+			<button id="paletteButton" class="paletteButton" data-circuittype="2">NOT</button>				
+		</div>
+	</div>
+	
+	<script src="script.js"></script>
 </body> 
 
 </html> 

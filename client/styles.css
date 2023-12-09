@@ -1,0 +1,18 @@
+.canvasDiv {
+    width: 50%;
+    margin: auto;
+}
+
+.canvasBorder {
+    border: 0.1em solid #444444;
+    border-radius: 0.5em;
+    position: relative;
+    width: 50em;
+    height: 50em;
+}
+
+.paletteList {
+    list-style-type: '';
+    position: absolute;
+    left: 20em;
+}
