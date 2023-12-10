@@ -1,14 +1,22 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
-// TODO: moveable links
-// TODO: delete input/output nodes
+// TODO: delete/move input/output nodes
 // TODO: right click/long press functionality
 // TODO: palette of circuits
+// TODO: signals dont propogate through circuit correctly
+// TODO: add labels to gate links
+// TODO: recursive circuits
+// TODO: gates should be brighter
+
+const FPS = 60;
+const FPS_RATE = 1000 / FPS;
+const SIMULATION_TICKS_PER_SECOND = 20;
+const SIMULATION_RATE = 1000 / SIMULATION_TICKS_PER_SECOND;
 
 class State {
     constructor(size) {
         this.size = size;
-        this.memory = new Array(size).fill(0);
+        this.memory = new Array(size).fill(false);
         this.currentIndex = 0;
 
         // https://stackoverflow.com/questions/21988909/is-it-possible-to-create-a-fixed-length-array-in-javascript
@@ -19,7 +27,7 @@ class State {
 
     allocate() {
         if (this.currentIndex == this.size) {
-            throw RuntimeError("Ran out of memory, too many inputs/outputs")
+            throw new Error("Ran out of memory, too many inputs/outputs")
         }
     
         let allocated = this.currentIndex;
@@ -29,52 +37,43 @@ class State {
         return allocated;
     }
 
+    boundsCheck(index) {
+        if (index >= 0 && index < this.size) return true;
+        // TODO: very bad
+        if (index == undefined || index == null) return false;
+
+        throw new Error(`Out of bounds: ${index} >= ${this.size}`);        
+    }
+
     setValue(index, value) {
-        if (index != -1) this.memory[index] = value;
+        if (this.boundsCheck(index)) this.memory[index] = value;
     }
     
     getValue(index) {
-        if (index != -1) return this.memory[index];
+        if (this.boundsCheck(index)) return this.memory[index];
 
-        return 0;
+        return false;
     }   
 }
-
-const AND_OPERATION = (a, b) => (a * b) % 2;
-const OR_OPERATION = (a, b) => (a + b) % 2;
-const NOT_OPERATION = (a) => a == 1 ? 0 : 1;
 
 const LOGICAL_REPRESENTATION = {
     "inputSlots": [],
     "outputSlots": [],
-    "state": null,
     "operation": null,
     "children": []
 };
 
-// TODO: probably a better name for this
-function incompleteBinaryGate(representation, operation) {
-    let a = representation.state.getValue(representation.inputSlots[0]);
-    let b = representation.state.getValue(representation.inputSlots[1]);
+function binaryOperation(representation, operation) {
+    let a = globalState.getValue(representation.inputSlots[0]);
+    let b = globalState.getValue(representation.inputSlots[1]);
 
-    representation.state.setValue(representation.outputSlots[0], operation(a, b));
+    globalState.setValue(representation.outputSlots[0], operation(a, b));
 }
 
-function incompleteUnaryGate(representation, operation) {
-    representation.state.setValue(representation.outputSlots[0], operation(representation.state.getValue(representation.inputSlots[0])));
-}
+function unaryOperation(representation, operation) {
+    let a = globalState.getValue(representation.inputSlots[0]);
 
-function andGate(representation) {
-    incompleteBinaryGate(representation, AND_OPERATION);
-}
-
-function orGate(representation) {
-    incompleteBinaryGate(representation, OR_OPERATION);
-}
-
-function notGate(representation) {
-    console.log("DOing not operation");
-    incompleteUnaryGate(representation, NOT_OPERATION);
+    globalState.setValue(representation.outputSlots[0], operation(a));
 }
 
 function recursiveGate(representation) {
@@ -89,9 +88,9 @@ const GATE_TYPE_NOT = 2;
 const GATE_TYPE_RECURSIVE = 3;
 
 const GATE_TYPE = {
-    0: andGate,
-    1: orGate,
-    2: notGate,
+    0: (representation) => binaryOperation(representation, (a, b) => a && b), // AND
+    1: (representation) => binaryOperation(representation, (a, b) => a || b), // OR
+    2: (representation) => unaryOperation(representation, (a) => !a),         // NOT
     3: recursiveGate
 };
 
@@ -126,12 +125,10 @@ function convertCircuitToLogicalRepresenation(populatedList, circuitRepresentati
     if (!circuitAlreadyExisted) {
         // Get the operation the gate performs
         circuitRepresentation.operation = GATE_TYPE[circuit.type];
-        // Use same state as our representation
-        circuitRepresentation.state = representation.state;
         // Generate output slots (as many as there are output labels)
         for (let i = 0; i < circuit.outputLabels.length; i++) {
             circuitRepresentation.outputSlots.push(
-                representation.state.allocate()
+                globalState.allocate()
             );
         }
         // Generate input slots
@@ -168,7 +165,7 @@ function convertCircuitToLogicalRepresenation(populatedList, circuitRepresentati
 
 function convertToLogicalRepresentation(circuits, inputNodes, outputNodes) {
     let representation = JSON.parse(JSON.stringify(LOGICAL_REPRESENTATION));
-    representation.state = new State(1024);
+    globalState = new State(1024);
 
     // Maps circuit IDs to the logical representation of that circuit
     let circuitRepresentations = {};
@@ -178,7 +175,7 @@ function convertToLogicalRepresentation(circuits, inputNodes, outputNodes) {
     // Iterate input nodes
     for (let inputID in inputNodes) {
         let inputNode = inputNodes[inputID];
-        let inputSlot = representation.state.allocate();
+        let inputSlot = globalState.allocate();
         // Populate input slots of logical representation
         representation.inputSlots.push(inputSlot);
 
@@ -238,7 +235,6 @@ const MAX_IDS = 100_000_000;
 const MAX_ID_GENERATION_LOOPS = 1_000;
 
 // TODO: should use some sort of map type instead of treating an object as a map
-// TODO: palette of circuits
 
 let circuits = {};
 
@@ -249,6 +245,9 @@ let circuits = {};
 
 let inputNodes = {};
 let outputNodes = {};
+let circuitChanged = true; // Has circuit changed since last simulation tick
+let currentLogicalRepresenation = null;
+let globalState = new State(1024);
 
 const WEBSITE_URL = "http://127.0.0.1:8090";
 
@@ -268,9 +267,17 @@ function saveCircuitButtonClick() {
     let circuitName = document.getElementById("circuitNameInput").value;
 
     // TODO: doubt this will stop bad inputs
-    if (circuitName == "") return;
+    // TODO: send error message, some visual feedback
+    // Check string is not empty
+    if (circuitName.length == 0) {
+        return;
+    }
+    // Check string is alpha numeric
+    if (!circuitName.match(/^[a-zA-Z0-9]+$/)) {
+        return;
+    }
 
-    // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/send
+    // https://developer.mozilla.org/en-US/docs/Web I/XMLHttpRequest/send
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/saveCircuit", true);
     xhr.setRequestHeader("Content-Type", "application/json");
@@ -404,10 +411,10 @@ function addInitialPaletteButtons() {
     });
 }
 
-function randomColor() {
-    let r = randomInteger(0, 255).toString(16);
-    let g = randomInteger(0, 255).toString(16);
-    let b = randomInteger(0, 255).toString(16);
+function randomColor(lower=0, upper=255) {
+    let r = randomInteger(lower, upper).toString(16);
+    let g = randomInteger(lower, upper).toString(16);
+    let b = randomInteger(lower, upper).toString(16);
 
     if (r.length == 1) r = "0" + r;
     if (g.length == 1) g = "0" + g;
@@ -563,11 +570,12 @@ document.addEventListener("DOMContentLoaded", () => {
          // They clicked on an output node, so delete that connection
          if (oldNodeID == selectedNodeID && selectedNodeID != null && !oldNodeIsInput && !selectedNodeIsInput) {
             outputNodes[selectedNodeID].links = [];
+            circuitChanged = true;
         }
 
         // If they clicked on an input node, toggle state
         if (oldNodeID == selectedNodeID && selectedNodeID != null && oldNodeIsInput && selectedNodeIsInput) {
-            inputNodes[selectedNodeID].state = ~inputNodes[selectedNodeID].state;
+            inputNodes[selectedNodeID].state = !inputNodes[selectedNodeID].state;
         }
 
         // If they had selected a node, and then selected a link
@@ -593,6 +601,8 @@ document.addEventListener("DOMContentLoaded", () => {
             "input": null,
             "output": linkIndex
         });
+
+        circuitChanged = true;
     }
 
     function addOutputNodeLink(nodeID, circuitID, linkIndex) {
@@ -603,6 +613,8 @@ document.addEventListener("DOMContentLoaded", () => {
             "input": linkIndex,
             "output": null
         }];
+    
+        circuitChanged = true;
     }
 
     function clearSelected() {
@@ -753,6 +765,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             }
         }
+
+        circuitChanged = true;
     }
 
     function addLink(inputCircuitID, inputIndex, outputCircuitID, outputIndex) {
@@ -766,6 +780,8 @@ document.addEventListener("DOMContentLoaded", () => {
             "input": inputIndex,
             "output": outputIndex
         });
+
+        circuitChanged = true;
     }
 
     function drawCircuit(scale, circuit) {
@@ -888,31 +904,34 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function simulateCircuit() {
-        // Convert circuit to logical representation
-        // TODO: BAD! Cache this, and only update on edits
-        let representation = convertToLogicalRepresentation(circuits, inputNodes, outputNodes);
+        if (circuitChanged || currentLogicalRepresenation == null) {
+            // Convert circuit to logical representation
+            currentLogicalRepresenation = convertToLogicalRepresentation(circuits, inputNodes, outputNodes);
+
+            circuitChanged = false;
+        }
         
         // Read state of input nodes and write into representation's state
         let inputNodeIndex = 0;
 
         for (let inputNodeID in inputNodes) {
             let inputNodeValue = inputNodes[inputNodeID].state;
-            let inputSlot = representation.inputSlots[inputNodeIndex];
+            let inputSlot = currentLogicalRepresenation.inputSlots[inputNodeIndex];
             
-            representation.state.setValue(inputSlot, inputNodeValue);
+            globalState.setValue(inputSlot, inputNodeValue);
 
             inputNodeIndex++;
         }
 
         // Simulate circuit
-        representation.operation(representation);
+        currentLogicalRepresenation.operation(currentLogicalRepresenation);
 
         // Read values of state to output nodes
         let outputNodeIndex = 0;
 
         for (let outputNodeID in outputNodes) {
-            let outputSlot = representation.outputSlots[outputNodeIndex];
-            let outputSlotValue = representation.state.getValue(outputSlot);
+            let outputSlot = currentLogicalRepresenation.outputSlots[outputNodeIndex];
+            let outputSlotValue = globalState.getValue(outputSlot);
 
             outputNodes[outputNodeID].state = outputSlotValue;
 
@@ -936,6 +955,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 60 fps
-    window.setInterval(update, 17);
-    window.setInterval(simulationTick, 100);
+    window.setInterval(update, FPS_RATE);
+    window.setInterval(simulationTick, SIMULATION_RATE);
 });

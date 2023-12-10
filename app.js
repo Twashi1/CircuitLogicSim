@@ -14,6 +14,9 @@ app.post('/saveCircuit', (req, resp) => {
   let fileName = req.body["name"];
   let fileData = req.body["data"];
 
+  console.log("Got file");
+  console.log(fileData);
+
   // TODO: seems like a great way to destroy my machine
   fs.writeFileSync(`${fileName}.json`, JSON.stringify(fileData));
 });
