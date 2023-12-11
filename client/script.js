@@ -2,13 +2,11 @@
 
 // TODO: delete/move input/output nodes
 // TODO: right click/long press functionality
-// TODO: palette of circuits
 // TODO: add labels to gate links
 // TODO: recursive circuits
 // TODO: gates should be brighter
 // TODO: should use some sort of map type instead of treating an object as a map
-
-// TODO: canvas not centered
+// TODO: use bootstrap
 
 const FPS = 60;
 const FPS_RATE = 1000 / FPS;
@@ -296,25 +294,37 @@ const SCALE_MINIMUM = 0.1;
 const SCALE_MAXIMUM = 2;
 let scale = 1.0;
 
-// Selected circuit
-let selectedCircuitID = null;
-// Selected link
-let selectedLinkIndex = null;
-let selectedLinkIsInput = null;
-// Selected node
-let selectedNodeID = null;
-let selectedNodeIsInput = null;
+const SELECTION_STRUCTURE = {
+    "circuitID": null,
+    "linkIndex": null,
+    "nodeID": null,
+    "isInput": null
+};
+
+// TODO: these values probably have a standard, find it and use it
+const LONG_PRESS_MINIMUM_ELAPSED = 1;
+const DOUBLE_TAP_MAXIMUM_ELAPSED = 0.2;
+
+const DRAG_DISTANCE_MINIMUM = 0;
+const DRAG_ELAPSED_MINIMUM = 0;
 
 let mouseX = 0;
 let mouseY = 0;
+
+let tapBeginMouseX = 0;
+let tapBeginMouseY = 0;
+let tapBeginTimestamp = null;
+let lastTapTimestamp = null;
+
+let previousSelection = Object.assign({}, SELECTION_STRUCTURE);
 
 let canvasWidth = 0;
 let canvasHeight = 0;
 let canvasRect = null;
 
-const CIRCUIT_SIZE = 0.1;
+const CIRCUIT_SIZE = 0.08;
 
-const NODE_SIZE = 0.015;
+const NODE_SIZE = 0.02;
 const NODE_BORDER_WIDTH = 0.1;
 const NODE_RADIUS = (NODE_SIZE + NODE_SIZE * NODE_BORDER_WIDTH) / 2;
 
@@ -323,20 +333,6 @@ const LINK_BORDER_WIDTH = 0.2;
 const LINK_RADIUS = (LINK_SIZE + LINK_SIZE * LINK_BORDER_WIDTH) / 2;
 
 const WIRE_WIDTH = 0.005;
-
-// https://stackoverflow.com/questions/322378/javascript-check-if-mouse-button-down
-let lmbDown = 0;
-let rmbDown = 0;
-let lmbHeldTime = 0;
-let lmbLastShortClickTimestamp = 0;
-
-const LONG_PRESS_MINIMUM_ELAPSED = 1;
-const DOUBLE_TAP_MAXIMUM_ELAPSED = 0.2;
-
-// TODO: use
-let primaryAction = false;
-let secondaryAction = false;
-let tertiaryAction = false;
 
 function aabbIntersect(left1, right1, bot1, top1, left2, right2, bot2, top2) {
     return !((right1[0] < left2[0] || left1[0] > right2[0]) && (top1[1] < bot2[1] || bot1[1] > top2[1]));
@@ -351,6 +347,484 @@ function circleContains(x, y, r, px, py) {
     let dy = y - py;
 
     return dx * dx + dy * dy < r * r;
+}
+
+function scaleCoordinates(x, y) {
+    return [(x - canvasRect.left) / canvasWidth, (y - canvasRect.top) / canvasHeight];
+}
+
+function getCircuitHeight(circuit) {
+    // return CIRCUIT_SIZE * Math.max(circuit.inputLabels.length, circuit.outputLabels.length, 1) * scale;
+    return CIRCUIT_SIZE * scale;
+}
+
+// TODO: could multiply by length of the name of the circuit, but maybe we have horizontal names for longer circuits?
+function getCircuitWidth(circuit) {
+    return CIRCUIT_SIZE * scale;
+}
+
+function getLinkPositions(circuit, isInput) {
+    let count = isInput ? circuit.inputLabels.length : circuit.outputLabels.length;
+    let positions = Array(count);
+    let xOffset = (isInput ? 0 : getCircuitWidth(circuit));
+    // Don't have to worry about divide by zero, since we will return empty array anyway
+    let ySpacing = getCircuitHeight(circuit) / count;
+    
+    let left = circuit.position[0] - getCircuitWidth(circuit) / 2;
+    let bottom = circuit.position[1] - getCircuitHeight(circuit) / 2;
+
+    for (let i = 0; i < count; i++) {
+        positions[i] = [left + xOffset, bottom + ySpacing * i + ySpacing / 2];
+    }
+
+    return positions;
+}
+
+function getNodeRegionWidth() {
+    return NODE_RADIUS * 2 * scale;
+}
+
+function getNodeX(isInput) {
+    return (isInput ? NODE_RADIUS * scale : 1 - NODE_RADIUS * scale);
+}
+
+function getSelectedLinkIndex(x, y, linkPositions, isInput, circuitID) {
+    for (let i = 0; i < linkPositions.length; i++) {
+        let position = linkPositions[i];
+
+        // Check if cursor overlaps input position
+        if (circleContains(position[0], position[1], LINK_RADIUS * scale, x, y)) {
+            let selection = Object.assign({}, SELECTION_STRUCTURE);
+
+            selection.circuitID = circuitID;
+            selection.linkIndex = i;
+            selection.isInput = isInput;
+
+            return selection;
+        }
+    }
+
+    return null;
+}
+
+function getSelectedNode(x, y, nodes, isInput) {
+    for (let nodeID in nodes) {
+        let node = nodes[nodeID];
+
+        if (Math.abs(node.position - y) <= NODE_RADIUS * 2 * scale) {
+            let selection = Object.assign({}, SELECTION_STRUCTURE);
+
+            selection.nodeID = nodeID;
+            selection.isInput = isInput;
+
+            return selection;
+        }
+    }
+
+    return null;
+}
+
+function getSelectedCircuit(x, y, circuit, circuitID) {
+    // Check if the circuit itself was selected
+    let circuitHalfWidth = getCircuitWidth(circuit) / 2;
+    let circuitHalfHeight = getCircuitHeight(circuit) / 2;
+
+    if (aabbContains(
+        circuit.position[0] - circuitHalfWidth,
+        circuit.position[0] + circuitHalfWidth,
+        circuit.position[1] - circuitHalfHeight,
+        circuit.position[1] + circuitHalfHeight,
+        x,
+        y
+    )) {
+        let selection = Object.assign({}, SELECTION_STRUCTURE);
+
+        selection.circuitID = circuitID;
+
+        return selection;
+    }
+
+    return null;
+}
+
+function getSelected(x, y) {
+    let selection = null;
+
+    // Iterate circuits
+    for (let circuitID in circuits) {
+        let circuit = circuits[circuitID];
+
+        // Check if one of the links of the circuit was selected
+        let inputPositions = getLinkPositions(circuit, true);
+        let outputPositions = getLinkPositions(circuit, false);
+
+        selection = getSelectedLinkIndex(x, y, inputPositions, true, circuitID);
+
+        if (selection != null) return selection;
+        
+        selection = getSelectedLinkIndex(x, y, outputPositions, false, circuitID);
+    
+        if (selection != null) return selection;
+
+        selection = getSelectedCircuit(x, y, circuit, circuitID);
+
+        if (selection != null) return selection;
+    }
+
+    // Check if an input/output node was selected
+    if (x < getNodeRegionWidth()) {
+        selection = getSelectedNode(x, y, inputNodes, true);
+
+        if (selection != null) return selection;
+    } else if (x > (1 - getNodeRegionWidth())) {
+        selection = getSelectedNode(x, y, outputNodes, false);
+
+        if (selection != null) return selection;
+    }
+
+    return Object.assign({}, SELECTION_STRUCTURE);
+}
+
+function addInputNodeLink(nodeID, circuitID, linkIndex) {
+    let inputNode = inputNodes[nodeID];
+
+    inputNode.links.push({
+        "circuit": circuitID,
+        "input": null,
+        "output": linkIndex
+    });
+
+    circuitChanged = true;
+}
+
+function addOutputNodeLink(nodeID, circuitID, linkIndex) {
+    let outputNode = outputNodes[nodeID];
+
+    outputNode.links = [{
+        "circuit": circuitID,
+        "input": linkIndex,
+        "output": null
+    }];
+
+    circuitChanged = true;
+}
+
+function spawnInputNode(y) {
+    let newID = generateID(inputNodes);
+
+    inputNodes[newID] = {
+        "state": false,
+        "links": [],
+        "position": y
+    };
+}
+
+function spawnOutputNode(y) {
+    let newID = generateID(outputNodes);
+
+    outputNodes[newID] = {
+        "state": false,
+        "links": [],
+        "position": y
+    };
+}
+
+function clearLink(outputCircuitID, outputIndex) {
+    let foundLink = false;
+
+    // TODO: can we break here?
+    for (let circuitID in circuits) {
+        let circuit = circuits[circuitID];
+
+        for (let i = 0; i < circuit.links.length; i++) {
+            let link = circuit.links[i];
+
+            if (link.circuit == outputCircuitID && link.output == outputIndex) {
+                circuit.links.splice(i, 1);
+
+                foundLink = true;
+            }
+        }
+    }
+
+    // Check that the link is not coming from an input node
+    if (!foundLink) {
+        for (let inputNodeID in inputNodes) {
+            let inputNode = inputNodes[inputNodeID];
+
+            for (let i = 0; i < inputNode.links.length; i++) {
+                let link = inputNode.links[i];
+
+                if (link.circuit == outputCircuitID && link.output == outputIndex) {
+                    inputNode.links.splice(i, 1);
+                }
+            }
+        }
+    }
+
+    circuitChanged = true;
+}
+
+function addLink(inputCircuitID, inputIndex, outputCircuitID, outputIndex) {
+    // TODO: Search for that node being set in input circuit
+    // TODO: Search for that node being set in output circuit
+
+    let inputCircuit = circuits[inputCircuitID];
+
+    inputCircuit.links.push({
+        "circuit": outputCircuitID,
+        "input": inputIndex,
+        "output": outputIndex
+    });
+
+    circuitChanged = true;
+}
+
+function clearOutputNode(outputNodeID) {
+    outputNodes[outputNodeID].links = [];
+
+    circuitChanged = true;
+}
+
+function isSameSelection(a, b) {
+    return a.circuitID == b.circuitID && a.isInput == b.isInput && a.nodeID == b.nodeID && a.linkIndex == b.linkIndex;
+}
+
+function distance(x0, y0, x1, y1) {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function dragAction(x, y) {
+    let currentSelection = getSelected(x, y);
+
+    // If a circuit is selected (not a link of the circuit), and previous selection was also a circuit (preventing us from moving circuit when we're making links), move to cursor position
+    if (currentSelection.circuitID != null && currentSelection.linkIndex == null && previousSelection.circuitID != null) {
+        let circuit = circuits[currentSelection.circuitID];
+        let circuitHalfWidth = getCircuitWidth(circuit) / 2;
+        let circuitHalfHeight = getCircuitHeight(circuit) / 2;
+
+        if (x - circuitHalfWidth >= getNodeRegionWidth() && x + circuitHalfWidth <= (1 - getNodeRegionWidth()) && y - circuitHalfHeight >= 0 && y + circuitHalfHeight <= 1) {
+            circuit.position = [x, y];   
+        }
+    }
+}
+
+function drawWiresToCursor() {
+    // If a link was previously selected, draw wire to it
+    if (previousSelection.linkIndex != null) {
+        let linkPosition = getLinkPositions(circuits[previousSelection.circuitID], previousSelection.isInput)[previousSelection.linkIndex];
+
+        drawWire(linkPosition[0], linkPosition[1], mouseX, mouseY);
+    }
+    // If a node was previously selected, draw wire to it
+    else if (previousSelection.nodeID != null) {
+        drawWire(getNodeX(previousSelection.isInput), (previousSelection.isInput ? inputNodes : outputNodes)[previousSelection.nodeID].position, mouseX, mouseY);
+    }
+}
+
+function tapAction(x, y) {
+    let currentSelection = getSelected(x, y);
+
+    // Create I/O node when clicking sidebar
+    if (currentSelection.nodeID == null) {
+        if (x < getNodeRegionWidth()) {
+            spawnInputNode(y);
+        } else if (x > (1 - getNodeRegionWidth())) {
+            spawnOutputNode(y);
+        }
+    }
+
+    // If clicked same element
+    if (isSameSelection(currentSelection, previousSelection)) {
+        // If they tapped on an input link, clear it
+        if (currentSelection.linkIndex != null && currentSelection.isInput) {
+            clearLink(currentSelection.circuitID, currentSelection.linkIndex);
+        }
+        // If they tapped on a node
+        else if (currentSelection.nodeID != null) {
+            // If they tapped on an input node, switch its state
+            if (currentSelection.isInput)
+            {
+                inputNodes[currentSelection.nodeID].state = !inputNodes[currentSelection.nodeID].state;
+                console.log(`Selected: ${currentSelection.nodeID}`);
+            }    
+            // If they tapped on an output node, clear it
+            else
+                clearOutputNode(currentSelection.nodeID);
+        }
+    } else {
+        // If they previously selected a node, and currently are selecting a link
+        // Create link for input or output node
+        if (previousSelection.nodeID != null && currentSelection.linkIndex != null) {
+            // Check that the type of node and type of link are same
+            if (previousSelection.isInput == currentSelection.isInput) {
+                if (previousSelection.isInput)
+                    addInputNodeLink(previousSelection.nodeID, currentSelection.circuitID, currentSelection.linkIndex)
+                else 
+                    addOutputNodeLink(previousSelection.nodeID, currentSelection.circuitID, currentSelection.linkIndex);
+            }
+        }
+        // If they previously selected a link, and currently are selecting a node
+        // Create link for an input or output node
+        else if (previousSelection.linkIndex != null && currentSelection.nodeID != null) {
+            // Check that the type of node and type of link are same
+            if (previousSelection.isInput == currentSelection.isInput) {
+                if (currentSelection.isInput)
+                    addInputNodeLink(currentSelection.nodeID, previousSelection.circuitID, previousSelection.linkIndex)
+                else 
+                    addOutputNodeLink(currentSelection.nodeID, previousSelection.circuitID, previousSelection.linkIndex);
+            }
+        }
+        // If they previously selected a link, and currently are selecting a link
+        // Create link between two circuits
+        else if (previousSelection.linkIndex != null && currentSelection.linkIndex != null) {
+            // Check that the type of links are opposite
+            if (previousSelection.isInput != currentSelection.isInput) {
+                if (previousSelection.isInput)
+                    addLink(previousSelection.circuitID, previousSelection.linkIndex, currentSelection.circuitID, currentSelection.linkIndex);
+                else
+                    addLink(currentSelection.circuitID, currentSelection.linkIndex, previousSelection.circuitID, previousSelection.linkIndex);
+            }
+        }
+    }
+}
+
+// Also activated by right click on PC
+// TODO: on PC, a long press action should not be invoked if the position of the object changed significantly
+function longPressAction(x, y) {
+    let currentSelection = getSelected(x, y);
+
+}
+
+function doubleTapAction(x, y) {
+    let currentSelection = getSelected(x, y);
+}
+
+// https://developer.mozilla.org/en-US/docs/Web/API/Touch_events
+function mobileTouchStart(event) {
+    event.preventDefault();
+
+    const touches = event.changedTouches;
+
+    // We only care about 1 touch anyway
+    if (touches.length > 0) {    
+        let cursorPosition = scaleCoordinates(event.clientX, event.clientY);
+        tapBeginMouseX = cursorPosition[0];
+        tapBeginMouseY = cursorPosition[1];
+
+        tapBeginTimestamp = new Date();
+
+        previousSelection = getSelected(tapBeginMouseX, tapBeginMouseY);
+    }
+}
+
+function mobileTouchEnd(event) {
+    event.preventDefault();
+
+    const touches = event.changedTouches;
+
+    if (touches.length > 0 && tapBeginTimestamp != null) {
+        let cursorPosition = scaleCoordinates(touches[0].clientX, touches[0].clientY);
+
+        invokeAppropriateAction(cursorPosition[0], cursorPosition[1]);
+    }
+
+    previousSelection = Object.assign({}, SELECTION_STRUCTURE);
+    tapBeginTimestamp = null;
+}
+
+function invokeAppropriateAction(x, y) {
+    let currentTimestamp = new Date();
+    let touchTimeElapsed = (currentTimestamp - tapBeginTimestamp) / 1000;
+    let timeSinceLastTap = null;
+
+    if (lastTapTimestamp != null)
+        timeSinceLastTap = (currentTimestamp - lastTapTimestamp) / 1000;
+
+    if (!isDragging() && touchTimeElapsed > LONG_PRESS_MINIMUM_ELAPSED) {
+        longPressAction(x, y);
+    } else if (timeSinceLastTap != null && timeSinceLastTap < DOUBLE_TAP_MAXIMUM_ELAPSED) {
+        doubleTapAction(x, y);
+
+        lastTapTimestamp = currentTimestamp;
+    } else {
+        tapAction(x, y);
+    }
+}
+
+function isDragging() {
+    // Indicates mouse is currently down
+    if (tapBeginTimestamp != null) {
+        let timeElapsedHeld = ((new Date()) - tapBeginTimestamp) / 1000;
+        let distanceTravelled = distance(tapBeginMouseX, tapBeginMouseY, mouseX, mouseY);
+
+        if (timeElapsedHeld >= DRAG_ELAPSED_MINIMUM && distanceTravelled >= DRAG_DISTANCE_MINIMUM) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function mobileTouchMove(event) {
+    event.preventDefault();
+
+    let cursorPosition = scaleCoordinates(event.clientX, event.clientY);
+    mouseX = cursorPosition[0];
+    mouseY = cursorPosition[1];
+
+    if (isDragging())
+        dragAction(mouseX, mouseY);
+}
+
+function computerMouseDown(event) {
+    let cursorPosition;
+
+    if (event.button == 0 || event.button == 1) {
+        cursorPosition = scaleCoordinates(event.clientX, event.clientY);
+    }
+
+    if (event.button == 0) {
+        tapBeginMouseX = cursorPosition[0];
+        tapBeginMouseY = cursorPosition[1];
+
+        tapBeginTimestamp = new Date();
+    
+        previousSelection = getSelected(tapBeginMouseX, tapBeginMouseY);
+    }
+}
+
+function computerMouseUp(event) {
+    let cursorPosition;
+
+    if (tapBeginTimestamp == null) return;
+    
+    if (event.button == 0 || event.button == 1) {
+        cursorPosition = scaleCoordinates(event.clientX, event.clientY);
+    }
+
+    if (event.button == 0) {
+        invokeAppropriateAction(cursorPosition[0], cursorPosition[1]);
+    }
+
+    if (event.button == 1) {
+        longPressAction(cursorPosition[0], cursorPosition[1]);
+    }
+
+    previousSelection = Object.assign({}, SELECTION_STRUCTURE);
+    tapBeginTimestamp = null;
+}
+
+function computerMouseMove(event) {
+    let cursorPosition = scaleCoordinates(event.clientX, event.clientY);
+    mouseX = cursorPosition[0];
+    mouseY = cursorPosition[1];
+
+    if (isDragging())
+        dragAction(mouseX, mouseY);
 }
 
 // Inclusive
@@ -388,7 +862,7 @@ function addInitialPaletteButtons() {
                 let outputs = new Array(1);
                 outputs[0] = "C";
 
-                spawnCircuit(GATE_TYPE_AND, inputs, outputs, null);
+                spawnCircuit(GATE_TYPE_AND, inputs, outputs, null, "AND");
             }; break;
             case GATE_TYPE_OR: onclickFunction = () => {
                 let inputs = new Array(2);
@@ -397,7 +871,7 @@ function addInitialPaletteButtons() {
                 let outputs = new Array(1);
                 outputs[0] = "C";
 
-                spawnCircuit(GATE_TYPE_OR, inputs, outputs, null);
+                spawnCircuit(GATE_TYPE_OR, inputs, outputs, null, "OR");
             }; break;
             case GATE_TYPE_NOT: onclickFunction = () => {
                 let inputs = new Array(1);
@@ -405,7 +879,7 @@ function addInitialPaletteButtons() {
                 let outputs = new Array(1);
                 outputs[0] = "B";
 
-                spawnCircuit(GATE_TYPE_NOT, inputs, outputs, null);
+                spawnCircuit(GATE_TYPE_NOT, inputs, outputs, null, "NOT");
             }; break;
             default:
                 console.log("Couldn't populate palette buttons");
@@ -430,8 +904,21 @@ function randomColor(lower=0, upper=255) {
     return `#${r}${g}${b}`;
 }
 
-function spawnCircuit(type, inputLabels, outputLabels, representation) {
+function multiplyColor(color, amount) {
+    let r = (Math.min(Math.floor(parseInt(color.slice(1, 3), 16) * amount), 255)).toString(16);
+    let g = (Math.min(Math.floor(parseInt(color.slice(3, 5), 16) * amount), 255)).toString(16);
+    let b = (Math.min(Math.floor(parseInt(color.slice(5, 7), 16) * amount), 255)).toString(16);
+
+    if (r.length == 1) r = "0" + r;
+    if (g.length == 1) g = "0" + g;
+    if (b.length == 1) b = "0" + b;
+
+    return `#${r}${g}${b}`;
+}
+
+function spawnCircuit(type, inputLabels, outputLabels, representation, name) {
     circuits[generateID(circuits)] = {
+        "name": name,
         "color": randomColor(),
         "position": [0.5, 0.5],
         "inputLabels": inputLabels,
@@ -446,12 +933,20 @@ function scaleRange(value, min, max) {
     return value * (max - min) + min;
 }
 
+function roundDigits(number, digits) {
+    return Math.round((number + Number.EPSILON) * Math.pow(10, digits)) / Math.pow(10, digits);
+}
+
 function changeScaleSliderValue() {
     let sliderValue = document.getElementById("circuitScaleInput").value / 100;
     scale = scaleRange(sliderValue, SCALE_MINIMUM, SCALE_MAXIMUM);
 
-    document.getElementById("circuitScaleValue").innerHTML = scale;
+    // https://stackoverflow.com/questions/11832914/how-to-round-to-at-most-2-decimal-places-if-necessary
+    document.getElementById("circuitScaleValue").innerHTML = `${roundDigits(scale * 100, 3)}%`;
 }
+
+let canvas;
+let ctx;
 
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("circuitButton").addEventListener("click", getCircuitButtonClick);
@@ -462,493 +957,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     addInitialPaletteButtons();
 
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-
-    // Fit to container div
-    // https://stackoverflow.com/questions/10214873/make-canvas-as-wide-and-as-high-as-parent#:~:text=If%20you%20want%20the%20canvas,display%20size%20of%20the%20canvas.
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-
-    canvas.addEventListener("mousedown", mouseDown);
-    canvas.addEventListener("mouseup", mouseUp);
-
-    // TODO: how does this work on mobile?
-    canvas.addEventListener("mousemove", (event) => {
-        // TODO: get correct left and top
-        mouseX = (event.clientX - canvasRect.left) / canvasRect.width;
-        mouseY = (event.clientY - canvasRect.top) / canvasRect.height;
-    });
-
-    function mouseDown(event) {
-        if (event.button == 0) {
-            lmbDown = true;
-            findSelected(true);
-        }
-
-        if (event.button == 1) {
-            secondaryAction = true;
-
-            findSelected(false);
-        }
-    }
-
-    function mouseUp(event) {
-        // TODO: gotta re-do all of this to make logic way cleaner
-        if (event.button == 0) lmbDown = false;
-        if (event.button == 1) secondaryAction = false;
-
-        // Record what circuit and link they selected before
-        let oldNodeID = selectedNodeID;
-        let oldNodeIsInput = selectedNodeIsInput;
-        let oldCircuit = selectedCircuitID;
-        let oldLink = selectedLinkIndex;
-        let oldLinkIsInput = selectedLinkIsInput;
-
-        // Check if they have a circuit/link selected right now
-        if (event.button == 0) findSelected(true);
-        else findSelected(false);
-
-        // Check we haven't clicked on an existing input/output node
-        if (selectedNodeID == null) {
-            // Create input/output nodes
-            if (mouseX < getNodeRegionWidth()) {
-                let newID = generateID(inputNodes);
-    
-                inputNodes[newID] = {
-                    "state": 0,
-                    "position": mouseY,
-                    "links": []
-                };
-            }
-            else if (mouseX > (1 - getNodeRegionWidth())) {
-                let newID = generateID(outputNodes);
-    
-                outputNodes[newID] = {
-                    "state": 0,
-                    "position": mouseY,
-                    "links": []
-                };    
-            }
-        }
-
-        // If they did select a link/circuit
-        if (selectedCircuitID != null && selectedLinkIndex != null && oldLink != null && oldCircuit != null) {
-            // If they clicked on a link thats an input link we should clear it
-            if (oldLink == selectedLinkIndex && oldCircuit == selectedCircuitID) {
-                // We need to clear the input to this circuit
-                if (selectedLinkIsInput) {
-                    clearLink(selectedCircuitID, selectedLinkIndex);
-                }
-            }
-
-            // Check either the link is unique, or the circuit is unique, and one link is an input, while the other is an output
-            if ((oldLink != selectedLinkIndex || oldCircuit != selectedCircuitID) && oldLinkIsInput == !selectedLinkIsInput) {
-                // TODO: order in terms of which is input, which is output
-                // or don't allow at all if the oldCircuit/oldLink is an input
-                if (selectedLinkIsInput) {
-                    addLink(oldCircuit, oldLink, selectedCircuitID, selectedLinkIndex);
-                } else {
-                    addLink(selectedCircuitID, selectedLinkIndex, oldCircuit, oldLink);
-                }
-            }
-        }
-
-        // Check if they selected an output link and then selected an output node
-        if (oldCircuit != null && oldLink != null && !oldLinkIsInput && selectedNodeID != null && !selectedNodeIsInput) {
-            addOutputNodeLink(selectedNodeID, oldCircuit, oldLink);
-        }
-
-         // They clicked on an output node, so delete that connection
-         if (oldNodeID == selectedNodeID && selectedNodeID != null && !oldNodeIsInput && !selectedNodeIsInput) {
-            outputNodes[selectedNodeID].links = [];
-            circuitChanged = true;
-        }
-
-        // If they clicked on an input node, toggle state
-        if (oldNodeID == selectedNodeID && selectedNodeID != null && oldNodeIsInput && selectedNodeIsInput) {
-            inputNodes[selectedNodeID].state = !inputNodes[selectedNodeID].state;
-        }
-
-        // If they had selected a node, and then selected a link
-        if (oldNodeID != null && selectedCircuitID != null && selectedLinkIndex != null) {
-            // If they selected an input node and input link
-            if (oldNodeIsInput && selectedLinkIsInput) {
-                addInputNodeLink(oldNodeID, selectedCircuitID, selectedLinkIndex);
-            }
-            // If they selected an output node and output link
-            else if (!oldNodeIsInput && !selectedLinkIsInput) {
-                addOutputNodeLink(oldNodeID, selectedCircuitID, selectedLinkIndex);
-            }
-        }        
-
-        clearSelected();
-    }
-
-    function addInputNodeLink(nodeID, circuitID, linkIndex) {
-        let inputNode = inputNodes[nodeID];
-
-        inputNode.links.push({
-            "circuit": circuitID,
-            "input": null,
-            "output": linkIndex
-        });
-
-        circuitChanged = true;
-    }
-
-    function addOutputNodeLink(nodeID, circuitID, linkIndex) {
-        let outputNode = outputNodes[nodeID];
-
-        outputNode.links = [{
-            "circuit": circuitID,
-            "input": linkIndex,
-            "output": null
-        }];
-    
-        circuitChanged = true;
-    }
-
-    function clearSelected() {
-        selectedCircuitID = null;
-        selectedLinkIndex = null;
-        selectedLinkIsInput = null;
-        selectedNodeID = null;
-        selectedNodeIsInput = null;
-    }
-
-    function getSelectedNodeIDForType(nodeContainerObject) {
-        for (let nodeID in nodeContainerObject) {
-            let node = nodeContainerObject[nodeID];
-
-            let nodeY = node.position;
-
-            if (circleContains(0, nodeY, NODE_RADIUS, 0, mouseY))
-                return nodeID;
-        }
-
-        return null;
-    }   
-
-    function findSelected(checkPrimaryAction) {      
-        if (checkPrimaryAction) {
-            // Check if we're selecting a node
-            if (mouseX < getNodeRegionWidth() || mouseX > (1 - getNodeRegionWidth())) {
-                selectedNodeID = getSelectedNodeIDForType(mouseX < getNodeRegionWidth() ? inputNodes : (mouseX > (1 - getNodeRegionWidth()) ? outputNodes : {}));
-
-                if (selectedNodeID != null) {
-                    selectedNodeIsInput = mouseX < getNodeRegionWidth() ? true : (mouseX > (1 - getNodeRegionWidth()) ? false : null);
-                }
-            }
-            else {
-                // Iterate circuits
-                for (let circuitID in circuits) {
-                    let currentCircuit = circuits[circuitID];
-
-                    // Check if we're clicking a link
-                    let inputPositions = getLinkPositions(currentCircuit, true);
-                    let outputPositions = getLinkPositions(currentCircuit, false);
-                    
-                    for (let i = 0; i < inputPositions.length; i++) {
-                        let inputPos = inputPositions[i];
-
-                        if (circleContains(
-                            inputPos[0],
-                            inputPos[1],
-                            LINK_RADIUS,
-                            mouseX,
-                            mouseY
-                        )) {
-                            selectedLinkIndex = i;
-                            selectedLinkIsInput = true;
-                            selectedCircuitID = circuitID;
-                        }
-                    }
-
-                    for (let i = 0; i < outputPositions.length; i++) {
-                        let outputPos = outputPositions[i];
-
-                        if (circleContains(
-                            outputPos[0],
-                            outputPos[1],
-                            LINK_RADIUS,
-                            mouseX,
-                            mouseY
-                        )) {
-                            selectedLinkIndex = i;
-                            selectedLinkIsInput = false;
-                            selectedCircuitID = circuitID;
-                        }
-                    }
-                
-                    // Find circuit that was clicked on (if there was one)
-                    if (selectedLinkIndex == null && aabbContains(
-                        currentCircuit.position[0] - getCircuitWidth(currentCircuit) / 2,
-                        currentCircuit.position[0] + getCircuitWidth(currentCircuit) / 2,
-                        currentCircuit.position[1] - getCircuitHeight(currentCircuit) / 2,
-                        currentCircuit.position[1] + getCircuitHeight(currentCircuit) / 2,
-                        mouseX,
-                        mouseY
-                    )) {
-                        selectedCircuitID = circuitID;
-                    }
-                }
-            }
-        }
-        else {
-            // TODO: secondary action checking
-        }
-    }
-
-    function clearLink(outputCircuitID, outputIndex) {
-        let foundLink = false;
-
-        // TODO: can we break here?
-        for (let circuitID in circuits) {
-            let circuit = circuits[circuitID];
-
-            for (let i = 0; i < circuit.links.length; i++) {
-                let link = circuit.links[i];
-
-                if (link.circuit == outputCircuitID && link.output == outputIndex) {
-                    circuit.links.splice(i, 1);
-
-                    foundLink = true;
-                }
-            }
-        }
-
-        // Check that the link is not coming from an input node
-        if (!foundLink) {
-            for (let inputNodeID in inputNodes) {
-                let inputNode = inputNodes[inputNodeID];
-
-                for (let i = 0; i < inputNode.links.length; i++) {
-                    let link = inputNode.links[i];
-
-                    if (link.circuit == outputCircuitID && link.output == outputIndex) {
-                        inputNode.links.splice(i, 1);
-                    }
-                }
-            }
-        }
-
-        circuitChanged = true;
-    }
-
-    function addLink(inputCircuitID, inputIndex, outputCircuitID, outputIndex) {
-        // TODO: Search for that node being set in input circuit
-        // TODO: Search for that node being set in output circuit
-
-        let inputCircuit = circuits[inputCircuitID];
-
-        inputCircuit.links.push({
-            "circuit": outputCircuitID,
-            "input": inputIndex,
-            "output": outputIndex
-        });
-
-        circuitChanged = true;
-    }
-
-    function getCircuitHeight(circuit) {
-        // return CIRCUIT_SIZE * Math.max(circuit.inputLabels.length, circuit.outputLabels.length, 1) * scale;
-        return CIRCUIT_SIZE * scale;
-    }
-
-    // TODO: could multiply by length of the name of the circuit, but maybe we have horizontal names for longer circuits?
-    function getCircuitWidth(circuit) {
-        return CIRCUIT_SIZE * scale;
-    }
-
-    function getLinkPositions(circuit, isInput) {
-        let count = isInput ? circuit.inputLabels.length : circuit.outputLabels.length;
-        let positions = Array(count);
-        let xOffset = (isInput ? 0 : getCircuitWidth(circuit));
-        // Don't have to worry about divide by zero, since we will return empty array anyway
-        let ySpacing = getCircuitHeight(circuit) / count;
-        
-        let left = circuit.position[0] - getCircuitWidth(circuit) / 2;
-        let bottom = circuit.position[1] - getCircuitHeight(circuit) / 2;
-
-        for (let i = 0; i < count; i++) {
-            positions[i] = [left + xOffset, bottom + ySpacing * i + ySpacing / 2];
-        }
-
-        return positions;
-    }
-
-    function getNodeRegionWidth() {
-        return NODE_RADIUS * 2 * scale;
-    }
-
-    function getNodeX(isInput) {
-        return (isInput ? NODE_RADIUS * scale : 1 - NODE_RADIUS * scale);
-    }
-
-    function drawLinkNode(x, y, linked) {
-        ctx.beginPath();
-        ctx.arc(x * canvasWidth, y * canvasHeight, scale * LINK_RADIUS * canvasWidth, 0, 2 * Math.PI, false);
-        ctx.fillStyle = linked ? CIRCUIT_ACTIVE_LINK_COLOR : CIRCUIT_INACTIVE_LINK_COLOR;
-        ctx.fill();
-        ctx.lineWidth = scale * LINK_SIZE * LINK_BORDER_WIDTH * canvasWidth;
-        ctx.strokeStyle = CIRCUIT_LINK_BORDER_COLOR;
-        ctx.stroke();
-    }
-
-    function drawIONode(x, y, active) {
-        ctx.beginPath();
-        ctx.arc(x * canvasWidth, y * canvasHeight, scale * NODE_RADIUS * canvasWidth, 0, 2 * Math.PI, false);
-        ctx.fillStyle = active ? CIRCUIT_ACTIVE_NODE_COLOR : CIRCUIT_INACTIVE_NODE_COLOR;
-        ctx.fill();
-        ctx.lineWidth = scale * NODE_SIZE * NODE_BORDER_WIDTH * canvasWidth;
-        ctx.strokeStyle = CIRCUIT_NODE_BORDER_COLOR;
-        ctx.stroke();
-    }
-
-    function drawWire(x0, y0, x1, y1) {
-        ctx.beginPath();
-        ctx.moveTo(x0 * canvasWidth, y0 * canvasHeight);
-        ctx.lineTo(x1 * canvasWidth, y1 * canvasHeight);
-        ctx.lineWidth = scale * WIRE_WIDTH * canvasWidth;
-        ctx.strokeStyle = CIRCUIT_LINK_WIRE_COLOR;
-        ctx.stroke();
-    }
-    
-    function clearScreen() {
-        ctx.fillStyle = BACKGROUND_COLOR;
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-        ctx.fillStyle = NODE_REGION_COLOR;
-        ctx.fillRect(0, 0, getNodeRegionWidth() * canvasWidth, canvasHeight);
-        ctx.fillRect((1 - getNodeRegionWidth()) * canvasWidth, 0, canvasWidth, canvasHeight);
-    }
-
-    function drawCircuit(circuit) {
-        console.log(`Drawing circuit: ${circuit}`);
-
-        let x = circuit.position[0];
-        let y = circuit.position[1];
-
-        let width = getCircuitWidth(circuit);
-        let height = getCircuitHeight(circuit);
-
-        let left = x - width / 2;
-        let bottom = y - width / 2;
-
-        ctx.fillStyle = circuit.color;
-        ctx.fillRect(left * canvasWidth, bottom * canvasHeight, width * canvasWidth, height * canvasHeight);
-
-        // Iterate links and draw them
-        let inputPositions = getLinkPositions(circuit, true);
-        let outputPositions = getLinkPositions(circuit, false);
-
-        // TODO: read whether or not a node is linked, and change color
-        // or read the state of that node to draw color (maybe more useful)
-        for (let i = 0; i < inputPositions.length; i++) {
-            let pos = inputPositions[i];
-            
-            drawLinkNode(pos[0], pos[1], false);
-        }
-
-        for (let i = 0; i < outputPositions.length; i++) {
-            let pos = outputPositions[i];
-
-            drawLinkNode(pos[0], pos[1], false);
-        }
-
-        // Draw wires
-        for (let i = 0; i < circuit.links.length; i++) {
-            let link = circuit.links[i];
-
-            let otherCircuit = circuits[link.circuit];
-            let otherCircuitInputPositions = getLinkPositions(otherCircuit, true);
-
-            let ourNode = outputPositions[link.input];
-            let otherNode = otherCircuitInputPositions[link.output];
-
-            drawWire(ourNode[0], ourNode[1], otherNode[0], otherNode[1]);
-        }
-    }
-
-    function drawNodes(inputNodes, outputNodes) {
-        for (let nodeID in inputNodes) {
-            let node = inputNodes[nodeID];
-
-            let position = [getNodeX(true), node.position];
-
-            drawIONode(position[0], position[1], node.state);
-
-            for (let linkIndex in node.links) {
-                let link = node.links[linkIndex];
-
-                let inputPositions = getLinkPositions(circuits[link.circuit], true);
-                let otherNode = inputPositions[link.output];
-
-                drawWire(position[0], position[1], otherNode[0], otherNode[1]);
-            }
-        }
-
-        for (let nodeID in outputNodes) {
-            let node = outputNodes[nodeID];
-
-            let position = [getNodeX(false), node.position];
-
-            drawIONode(position[0], position[1], node.state);
-
-            for (let linkIndex in node.links) {
-                let link = node.links[linkIndex];
-
-                let outputPositions = getLinkPositions(circuits[link.circuit], false);
-                let otherNode = outputPositions[link.input];
-
-                drawWire(position[0], position[1], otherNode[0], otherNode[1]);
-            }
-        }
-
-        // Draw from the selected node to the cursor
-        if (selectedNodeID != null) {
-            let node = selectedNodeIsInput ? inputNodes[selectedNodeID] : outputNodes[selectedNodeID];
-            
-            drawWire(getNodeX(selectedNodeIsInput), node.position, mouseX, mouseY);
-        }
-    }
-
-    function drawCircuits(circuits) {
-        for (let id in circuits) {
-            drawCircuit(circuits[id]);
-        }
-
-        // Draw from the selected circuit/link to the cursor
-        if (selectedCircuitID != null && selectedLinkIndex != null) {
-            let circuit = circuits[selectedCircuitID];
-
-            let startNode = getLinkPositions(circuit, selectedLinkIsInput)[selectedLinkIndex];
-
-            drawWire(startNode[0], startNode[1], mouseX, mouseY);
-        }
-    }
-
-    function updateCircuitPosition() {
-        let canvasBorderDiv = document.getElementById("canvasBorder");
-        let rect = canvasBorderDiv.getBoundingClientRect();
-
-        // TODO: bad place to put this
-        canvasWidth = canvasBorderDiv.offsetWidth;
-        canvasHeight = canvasBorderDiv.offsetHeight;
-        canvasRect = rect;
-
-        if (selectedCircuitID != null && lmbDown && selectedLinkIndex == null) {
-            let newPosition = [mouseX, mouseY];
-
-            if (newPosition[0] <= getNodeRegionWidth() || newPosition[0] + getCircuitWidth(circuits[selectedCircuitID]) >= (1 - getNodeRegionWidth())) {
-                return;
-            }
-
-            circuits[selectedCircuitID].position = newPosition;
-        }
-    }
+    canvas = document.getElementById("canvas");
+    ctx = canvas.getContext("2d");
+
+    canvas.addEventListener("mousedown", computerMouseDown);
+    canvas.addEventListener("mouseup", computerMouseUp);
+    canvas.addEventListener("mousemove", computerMouseMove);
+    canvas.addEventListener("touchstart", mobileTouchStart);
+    canvas.addEventListener("touchend", mobileTouchEnd);
+    canvas.addEventListener("touchmove", mobileTouchMove);
 
     function simulateCircuit() {
         if (circuitChanged || currentLogicalRepresenation == null) {
@@ -991,7 +1008,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function update() {
-        updateCircuitPosition();
+        // Fit to container div
+        // https://stackoverflow.com/questions/10214873/make-canvas-as-wide-and-as-high-as-parent#:~:text=If%20you%20want%20the%20canvas,display%20size%20of%20the%20canvas.
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+
+        // TODO: base off of the size of canvas
+        ctx.font = "30px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = 'middle';
+
+        let canvasBorderDiv = document.getElementById("canvasBorder");
+        let rect = canvasBorderDiv.getBoundingClientRect();
+
+        canvasWidth = canvasBorderDiv.offsetWidth;
+        canvasHeight = canvasBorderDiv.offsetHeight;
+        canvasRect = rect;
+
         draw();
     }
 
@@ -999,9 +1034,137 @@ document.addEventListener("DOMContentLoaded", () => {
         clearScreen();
         drawCircuits(circuits);
         drawNodes(inputNodes, outputNodes);
+        drawWiresToCursor();
     }
 
     // 60 fps
     window.setInterval(update, FPS_RATE);
     window.setInterval(simulationTick, SIMULATION_RATE);
 });
+
+function drawLinkNode(x, y, linked) {
+    ctx.beginPath();
+    ctx.arc(x * canvasWidth, y * canvasHeight, scale * LINK_RADIUS * canvasWidth, 0, 2 * Math.PI, false);
+    ctx.fillStyle = linked ? CIRCUIT_ACTIVE_LINK_COLOR : CIRCUIT_INACTIVE_LINK_COLOR;
+    ctx.fill();
+    ctx.lineWidth = scale * LINK_SIZE * LINK_BORDER_WIDTH * canvasWidth;
+    ctx.strokeStyle = CIRCUIT_LINK_BORDER_COLOR;
+    ctx.stroke();
+}
+
+function drawIONode(x, y, active) {
+    ctx.beginPath();
+    ctx.arc(x * canvasWidth, y * canvasHeight, scale * NODE_RADIUS * canvasWidth, 0, 2 * Math.PI, false);
+    ctx.fillStyle = active ? CIRCUIT_ACTIVE_NODE_COLOR : CIRCUIT_INACTIVE_NODE_COLOR;
+    ctx.fill();
+    ctx.lineWidth = scale * NODE_SIZE * NODE_BORDER_WIDTH * canvasWidth;
+    ctx.strokeStyle = CIRCUIT_NODE_BORDER_COLOR;
+    ctx.stroke();
+}
+
+function drawWire(x0, y0, x1, y1) {
+    ctx.beginPath();
+    ctx.moveTo(x0 * canvasWidth, y0 * canvasHeight);
+    ctx.lineTo(x1 * canvasWidth, y1 * canvasHeight);
+    ctx.lineWidth = scale * WIRE_WIDTH * canvasWidth;
+    ctx.strokeStyle = CIRCUIT_LINK_WIRE_COLOR;
+    ctx.stroke();
+}
+
+function clearScreen() {
+    ctx.fillStyle = BACKGROUND_COLOR;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.fillStyle = NODE_REGION_COLOR;
+    ctx.fillRect(0, 0, getNodeRegionWidth() * canvasWidth, canvasHeight);
+    ctx.fillRect((1 - getNodeRegionWidth()) * canvasWidth, 0, canvasWidth, canvasHeight);
+}
+
+function drawCircuit(circuit) {
+    let x = circuit.position[0];
+    let y = circuit.position[1];
+
+    let width = getCircuitWidth(circuit);
+    let height = getCircuitHeight(circuit);
+
+    let left = x - width / 2;
+    let bottom = y - width / 2;
+
+    ctx.fillStyle = circuit.color;
+    ctx.fillRect(left * canvasWidth, bottom * canvasHeight, width * canvasWidth, height * canvasHeight);
+
+    ctx.fillStyle = multiplyColor(circuit.color, 0.5);
+    ctx.fillText(circuit.name, x * canvasWidth, y * canvasHeight);
+
+    // Iterate links and draw them
+    let inputPositions = getLinkPositions(circuit, true);
+    let outputPositions = getLinkPositions(circuit, false);
+
+    // TODO: read whether or not a node is linked, and change color
+    // or read the state of that node to draw color (maybe more useful)
+    for (let i = 0; i < inputPositions.length; i++) {
+        let pos = inputPositions[i];
+        
+        drawLinkNode(pos[0], pos[1], false);
+    }
+
+    for (let i = 0; i < outputPositions.length; i++) {
+        let pos = outputPositions[i];
+
+        drawLinkNode(pos[0], pos[1], false);
+    }
+
+    // Draw wires
+    for (let i = 0; i < circuit.links.length; i++) {
+        let link = circuit.links[i];
+
+        let otherCircuit = circuits[link.circuit];
+        let otherCircuitInputPositions = getLinkPositions(otherCircuit, true);
+
+        let ourNode = outputPositions[link.input];
+        let otherNode = otherCircuitInputPositions[link.output];
+
+        drawWire(ourNode[0], ourNode[1], otherNode[0], otherNode[1]);
+    }
+}
+
+function drawNodes(inputNodes, outputNodes) {
+    for (let nodeID in inputNodes) {
+        let node = inputNodes[nodeID];
+
+        let position = [getNodeX(true), node.position];
+
+        drawIONode(position[0], position[1], node.state);
+
+        for (let linkIndex in node.links) {
+            let link = node.links[linkIndex];
+
+            let inputPositions = getLinkPositions(circuits[link.circuit], true);
+            let otherNode = inputPositions[link.output];
+
+            drawWire(position[0], position[1], otherNode[0], otherNode[1]);
+        }
+    }
+
+    for (let nodeID in outputNodes) {
+        let node = outputNodes[nodeID];
+
+        let position = [getNodeX(false), node.position];
+
+        drawIONode(position[0], position[1], node.state);
+
+        for (let linkIndex in node.links) {
+            let link = node.links[linkIndex];
+
+            let outputPositions = getLinkPositions(circuits[link.circuit], false);
+            let otherNode = outputPositions[link.input];
+
+            drawWire(position[0], position[1], otherNode[0], otherNode[1]);
+        }
+    }
+}
+
+function drawCircuits(circuits) {
+    for (let id in circuits) {
+        drawCircuit(circuits[id]);
+    }
+}
