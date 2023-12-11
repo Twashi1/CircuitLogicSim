@@ -12,9 +12,29 @@
 
 <body>
 	<h1>LogicSim</h1>
+	<h2>
+		Controls
+	</h2>
+	<ul>
+		<li><b>Left click</b> is same as a <b>tap</b> on mobile</li>
+		<li><b>Right click</b> is same as a <b>long press</b> on mobile</li>
+		<li><b>Double left click</b> is same as <b>double tap</b> on mobile</li>
+	</ul>
+	<ul>
+		<li>Left click buttons to add logic gates</li>
+		<li>Left click circuit/node and move around with cursor</li>
+		<li>Left click a node, then and drag cursor to another node to make a connection</li>
+		<li>Left click a node to toggle state</li>
+		<li>Left click sidebar to add an input/output</li>
+		<li>Right click on a gate or input/output node to rename it</li>
+		<li>Double left click on a gate or node to delete connection(s)</li>
+	</ul>
+	
 	<button id="circuitButton">Get circuit</button>
 	<button id="saveCircuitButton">Save circuit</button>
 	<input type="text" id="circuitNameInput" placeholder="Circuit name" maxlength=16>
+	<input type="range" id="circuitScaleInput" min="1" max="100" value="50" class="slider">
+	<p id="circuitScaleValueDisplay">Scale: <p id="circuitScaleValue">1</p></p>
 
 	<div class="canvasContainerDiv">
 		<div class="circuitAreaDiv">

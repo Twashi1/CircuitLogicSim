@@ -1,3 +1,7 @@
+html {
+    font-family: Arial;
+}
+
 .paletteButton {
 }
 
@@ -10,8 +14,6 @@
 .circuitAreaDiv {
     display: inline-block;
     position: relative;
-    margin: auto;
-    width: 50%;
 }
 
 .paletteDiv {
@@ -21,6 +23,6 @@
 .canvasBorder {
     border: 0.1em solid #444444;
     border-radius: 0.5em;
-    width: 50em;
-    height: 50em;
+    width: 80vw;
+    height: 80vh;
 }

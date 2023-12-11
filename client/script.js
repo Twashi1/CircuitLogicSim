@@ -3,10 +3,12 @@
 // TODO: delete/move input/output nodes
 // TODO: right click/long press functionality
 // TODO: palette of circuits
-// TODO: signals dont propogate through circuit correctly
 // TODO: add labels to gate links
 // TODO: recursive circuits
 // TODO: gates should be brighter
+// TODO: should use some sort of map type instead of treating an object as a map
+
+// TODO: canvas not centered
 
 const FPS = 60;
 const FPS_RATE = 1000 / FPS;
@@ -234,8 +236,6 @@ const CIRCUIT_NODE_BORDER_COLOR = "#222222";
 const MAX_IDS = 100_000_000;
 const MAX_ID_GENERATION_LOOPS = 1_000;
 
-// TODO: should use some sort of map type instead of treating an object as a map
-
 let circuits = {};
 
 // Each node consists of
@@ -246,7 +246,7 @@ let circuits = {};
 let inputNodes = {};
 let outputNodes = {};
 let circuitChanged = true; // Has circuit changed since last simulation tick
-let currentLogicalRepresenation = null;
+let currentLogicalRepresenation = null; // The current logical representation of the circuit, updated each time a change is made
 let globalState = new State(1024);
 
 const WEBSITE_URL = "http://127.0.0.1:8090";
@@ -292,6 +292,8 @@ function saveCircuitButtonClick() {
     ));
 }
 
+const SCALE_MINIMUM = 0.1;
+const SCALE_MAXIMUM = 2;
 let scale = 1.0;
 
 // Selected circuit
@@ -312,24 +314,29 @@ let canvasRect = null;
 
 const CIRCUIT_SIZE = 0.1;
 
-const NODE_SIZE = 0.02;
-const NODE_BORDER_WIDTH = 0.2;
+const NODE_SIZE = 0.015;
+const NODE_BORDER_WIDTH = 0.1;
+const NODE_RADIUS = (NODE_SIZE + NODE_SIZE * NODE_BORDER_WIDTH) / 2;
 
 const LINK_SIZE = 0.01;
-const LINK_WIRE_WIDTH = 0.01;
 const LINK_BORDER_WIDTH = 0.2;
+const LINK_RADIUS = (LINK_SIZE + LINK_SIZE * LINK_BORDER_WIDTH) / 2;
 
-const INPUT_NODE_POSITION = NODE_SIZE * 2;
-const OUTPUT_NODE_POSITION = 1 - INPUT_NODE_POSITION;
+const WIRE_WIDTH = 0.005;
 
 // https://stackoverflow.com/questions/322378/javascript-check-if-mouse-button-down
 let lmbDown = 0;
+let rmbDown = 0;
+let lmbHeldTime = 0;
+let lmbLastShortClickTimestamp = 0;
 
-// Before any scale variables
-// TODO: in future, base it off max(input count, output count)
-function getCircuitHeight(circuit) {
-    return CIRCUIT_SIZE;
-}
+const LONG_PRESS_MINIMUM_ELAPSED = 1;
+const DOUBLE_TAP_MAXIMUM_ELAPSED = 0.2;
+
+// TODO: use
+let primaryAction = false;
+let secondaryAction = false;
+let tertiaryAction = false;
 
 function aabbIntersect(left1, right1, bot1, top1, left2, right2, bot2, top2) {
     return !((right1[0] < left2[0] || left1[0] > right2[0]) && (top1[1] < bot2[1] || bot1[1] > top2[1]));
@@ -435,9 +442,23 @@ function spawnCircuit(type, inputLabels, outputLabels, representation) {
     };
 }
 
+function scaleRange(value, min, max) {
+    return value * (max - min) + min;
+}
+
+function changeScaleSliderValue() {
+    let sliderValue = document.getElementById("circuitScaleInput").value / 100;
+    scale = scaleRange(sliderValue, SCALE_MINIMUM, SCALE_MAXIMUM);
+
+    document.getElementById("circuitScaleValue").innerHTML = scale;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("circuitButton").addEventListener("click", getCircuitButtonClick);
     document.getElementById("saveCircuitButton").addEventListener("click", saveCircuitButtonClick);
+    document.getElementById("circuitScaleInput").addEventListener("input", changeScaleSliderValue);
+
+    document.getElementById("circuitScaleInput").value = (1.0 - SCALE_MINIMUM) / (SCALE_MAXIMUM - SCALE_MINIMUM);
 
     addInitialPaletteButtons();
 
@@ -454,43 +475,6 @@ document.addEventListener("DOMContentLoaded", () => {
     canvas.addEventListener("mousedown", mouseDown);
     canvas.addEventListener("mouseup", mouseUp);
 
-    function drawLinkNode(x, y, scale, linked) {
-        ctx.beginPath();
-        ctx.arc(x * scale * canvasWidth, y * scale * canvasHeight, scale * LINK_SIZE * canvasWidth, 0, 2 * Math.PI, false);
-        ctx.fillStyle = linked ? CIRCUIT_ACTIVE_LINK_COLOR : CIRCUIT_INACTIVE_LINK_COLOR;
-        ctx.fill();
-        ctx.lineWidth = scale * LINK_SIZE * LINK_BORDER_WIDTH * canvasWidth;
-        ctx.strokeStyle = CIRCUIT_LINK_BORDER_COLOR;
-        ctx.stroke();
-    }
-
-    function drawIONode(x, y, scale, active) {
-        ctx.beginPath();
-        ctx.arc(x * scale * canvasWidth, y * scale * canvasHeight, scale * NODE_SIZE * canvasWidth, 0, 2 * Math.PI, false);
-        ctx.fillStyle = active ? CIRCUIT_ACTIVE_NODE_COLOR : CIRCUIT_INACTIVE_NODE_COLOR;
-        ctx.fill();
-        ctx.lineWidth = scale * NODE_SIZE * NODE_BORDER_WIDTH * canvasWidth;
-        ctx.strokeStyle = CIRCUIT_NODE_BORDER_COLOR;
-        ctx.stroke();
-    }
-
-    function drawLinkWire(x0, y0, x1, y1, scale) {
-        ctx.beginPath();
-        ctx.moveTo(x0 * scale * canvasWidth, y0 * scale * canvasHeight);
-        ctx.lineTo(x1 * scale * canvasWidth, y1 * scale * canvasHeight);
-        ctx.lineWidth = scale * LINK_WIRE_WIDTH * canvasWidth;
-        ctx.strokeStyle = CIRCUIT_LINK_WIRE_COLOR;
-        ctx.stroke();
-    }
-    
-    function clearScreen() {
-        ctx.fillStyle = BACKGROUND_COLOR;
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-        ctx.fillStyle = NODE_REGION_COLOR;
-        ctx.fillRect(0, 0, INPUT_NODE_POSITION * canvasWidth, canvasHeight);
-        ctx.fillRect(OUTPUT_NODE_POSITION * canvasWidth, 0, canvasWidth, canvasHeight);
-    }
-
     // TODO: how does this work on mobile?
     canvas.addEventListener("mousemove", (event) => {
         // TODO: get correct left and top
@@ -499,13 +483,22 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     function mouseDown(event) {
-        if (event.button == 0) ++lmbDown;
-        
-        findSelected();
+        if (event.button == 0) {
+            lmbDown = true;
+            findSelected(true);
+        }
+
+        if (event.button == 1) {
+            secondaryAction = true;
+
+            findSelected(false);
+        }
     }
 
     function mouseUp(event) {
-        if (event.button == 0) --lmbDown;
+        // TODO: gotta re-do all of this to make logic way cleaner
+        if (event.button == 0) lmbDown = false;
+        if (event.button == 1) secondaryAction = false;
 
         // Record what circuit and link they selected before
         let oldNodeID = selectedNodeID;
@@ -515,12 +508,13 @@ document.addEventListener("DOMContentLoaded", () => {
         let oldLinkIsInput = selectedLinkIsInput;
 
         // Check if they have a circuit/link selected right now
-        findSelected();
+        if (event.button == 0) findSelected(true);
+        else findSelected(false);
 
         // Check we haven't clicked on an existing input/output node
         if (selectedNodeID == null) {
             // Create input/output nodes
-            if (mouseX < INPUT_NODE_POSITION) {
+            if (mouseX < getNodeRegionWidth()) {
                 let newID = generateID(inputNodes);
     
                 inputNodes[newID] = {
@@ -529,7 +523,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     "links": []
                 };
             }
-            else if (mouseX > OUTPUT_NODE_POSITION) {
+            else if (mouseX > (1 - getNodeRegionWidth())) {
                 let newID = generateID(outputNodes);
     
                 outputNodes[newID] = {
@@ -631,106 +625,81 @@ document.addEventListener("DOMContentLoaded", () => {
 
             let nodeY = node.position;
 
-            if (circleContains(0, nodeY, NODE_SIZE, 0, mouseY))
+            if (circleContains(0, nodeY, NODE_RADIUS, 0, mouseY))
                 return nodeID;
         }
 
         return null;
     }   
 
-    function findSelected() {      
-        // Check if we're selecting a node
-        if (mouseX < INPUT_NODE_POSITION || mouseX > OUTPUT_NODE_POSITION) {
-            selectedNodeID = getSelectedNodeIDForType(mouseX < INPUT_NODE_POSITION ? inputNodes : (mouseX > OUTPUT_NODE_POSITION ? outputNodes : {}));
+    function findSelected(checkPrimaryAction) {      
+        if (checkPrimaryAction) {
+            // Check if we're selecting a node
+            if (mouseX < getNodeRegionWidth() || mouseX > (1 - getNodeRegionWidth())) {
+                selectedNodeID = getSelectedNodeIDForType(mouseX < getNodeRegionWidth() ? inputNodes : (mouseX > (1 - getNodeRegionWidth()) ? outputNodes : {}));
 
-            if (selectedNodeID != null) {
-                selectedNodeIsInput = mouseX < INPUT_NODE_POSITION ? true : (mouseX > OUTPUT_NODE_POSITION ? false : null);
+                if (selectedNodeID != null) {
+                    selectedNodeIsInput = mouseX < getNodeRegionWidth() ? true : (mouseX > (1 - getNodeRegionWidth()) ? false : null);
+                }
+            }
+            else {
+                // Iterate circuits
+                for (let circuitID in circuits) {
+                    let currentCircuit = circuits[circuitID];
+
+                    // Check if we're clicking a link
+                    let inputPositions = getLinkPositions(currentCircuit, true);
+                    let outputPositions = getLinkPositions(currentCircuit, false);
+                    
+                    for (let i = 0; i < inputPositions.length; i++) {
+                        let inputPos = inputPositions[i];
+
+                        if (circleContains(
+                            inputPos[0],
+                            inputPos[1],
+                            LINK_RADIUS,
+                            mouseX,
+                            mouseY
+                        )) {
+                            selectedLinkIndex = i;
+                            selectedLinkIsInput = true;
+                            selectedCircuitID = circuitID;
+                        }
+                    }
+
+                    for (let i = 0; i < outputPositions.length; i++) {
+                        let outputPos = outputPositions[i];
+
+                        if (circleContains(
+                            outputPos[0],
+                            outputPos[1],
+                            LINK_RADIUS,
+                            mouseX,
+                            mouseY
+                        )) {
+                            selectedLinkIndex = i;
+                            selectedLinkIsInput = false;
+                            selectedCircuitID = circuitID;
+                        }
+                    }
+                
+                    // Find circuit that was clicked on (if there was one)
+                    if (selectedLinkIndex == null && aabbContains(
+                        currentCircuit.position[0] - getCircuitWidth(currentCircuit) / 2,
+                        currentCircuit.position[0] + getCircuitWidth(currentCircuit) / 2,
+                        currentCircuit.position[1] - getCircuitHeight(currentCircuit) / 2,
+                        currentCircuit.position[1] + getCircuitHeight(currentCircuit) / 2,
+                        mouseX,
+                        mouseY
+                    )) {
+                        selectedCircuitID = circuitID;
+                    }
+                }
             }
         }
         else {
-            // Iterate circuits
-            for (let circuitID in circuits) {
-                let currentCircuit = circuits[circuitID];
-
-                // Check if we're clicking a link
-                let {inputPositions, outputPositions} = getLinkPositions(1.0, currentCircuit);
-                
-                for (let i = 0; i < inputPositions.length; i++) {
-                    let inputPos = inputPositions[i];
-
-                    if (circleContains(
-                        inputPos[0],
-                        inputPos[1],
-                        LINK_SIZE * (1 + LINK_BORDER_WIDTH),
-                        mouseX,
-                        mouseY
-                    )) {
-                        selectedLinkIndex = i;
-                        selectedLinkIsInput = true;
-                        selectedCircuitID = circuitID;
-                    }
-                }
-
-                for (let i = 0; i < outputPositions.length; i++) {
-                    let outputPos = outputPositions[i];
-
-                    if (circleContains(
-                        outputPos[0],
-                        outputPos[1],
-                        LINK_SIZE * (1 + LINK_BORDER_WIDTH),
-                        mouseX,
-                        mouseY
-                    )) {
-                        selectedLinkIndex = i;
-                        selectedLinkIsInput = false;
-                        selectedCircuitID = circuitID;
-                    }
-                }
-            
-                // Find circuit that was clicked on (if there was one)
-                if (selectedLinkIndex == null && aabbContains(
-                    currentCircuit.position[0],
-                    currentCircuit.position[0] + CIRCUIT_SIZE,
-                    currentCircuit.position[1],
-                    currentCircuit.position[1] + getCircuitHeight(currentCircuit),
-                    mouseX,
-                    mouseY
-                )) {
-                    selectedCircuitID = circuitID;
-                }
-            }
+            // TODO: secondary action checking
         }
-    }
-
-    // Returns {left, top, width, height}
-    function getCircuitPosition(scale, circuit) {
-        let x = circuit.position[0] * scale;
-        let y = circuit.position[1] * scale;
-        let width = scale * CIRCUIT_SIZE;
-        let height = scale * getCircuitHeight();
-
-        return {x, y, width, height};
-    }
-
-    // xOffset and yOffset in percentage of canvas
-    function calculateLinkPositions(scale, xOffset, yOffset, count) {
-        let spacing = getCircuitHeight() / count;
-        let positions = Array(count);
-
-        for (let i = 0; i < count; i++) {
-            positions[i] = [xOffset * scale, (yOffset + i * spacing + spacing / 2) * scale];
-        }
-
-        return positions;
-    }
-
-    function getLinkPositions(scale, circuit) {
-        let {x, y, width, height} = getCircuitPosition(1.0, circuit);
-
-        let inputPositions = calculateLinkPositions(scale, x, y, circuit.inputLabels.length);
-        let outputPositions = calculateLinkPositions(scale, x + width, y, circuit.outputLabels.length);
-
-        return {inputPositions, outputPositions};
     }
 
     function clearLink(outputCircuitID, outputIndex) {
@@ -784,77 +753,157 @@ document.addEventListener("DOMContentLoaded", () => {
         circuitChanged = true;
     }
 
-    function drawCircuit(scale, circuit) {
-        // Calculate draw coordinates
-        let x = circuit.position[0] * scale * canvasWidth;
-        let y = circuit.position[1] * scale * canvasHeight;
-        let width = scale * CIRCUIT_SIZE * canvasWidth;
-        let height = scale * getCircuitHeight() * canvasHeight;
+    function getCircuitHeight(circuit) {
+        // return CIRCUIT_SIZE * Math.max(circuit.inputLabels.length, circuit.outputLabels.length, 1) * scale;
+        return CIRCUIT_SIZE * scale;
+    }
+
+    // TODO: could multiply by length of the name of the circuit, but maybe we have horizontal names for longer circuits?
+    function getCircuitWidth(circuit) {
+        return CIRCUIT_SIZE * scale;
+    }
+
+    function getLinkPositions(circuit, isInput) {
+        let count = isInput ? circuit.inputLabels.length : circuit.outputLabels.length;
+        let positions = Array(count);
+        let xOffset = (isInput ? 0 : getCircuitWidth(circuit));
+        // Don't have to worry about divide by zero, since we will return empty array anyway
+        let ySpacing = getCircuitHeight(circuit) / count;
+        
+        let left = circuit.position[0] - getCircuitWidth(circuit) / 2;
+        let bottom = circuit.position[1] - getCircuitHeight(circuit) / 2;
+
+        for (let i = 0; i < count; i++) {
+            positions[i] = [left + xOffset, bottom + ySpacing * i + ySpacing / 2];
+        }
+
+        return positions;
+    }
+
+    function getNodeRegionWidth() {
+        return NODE_RADIUS * 2 * scale;
+    }
+
+    function getNodeX(isInput) {
+        return (isInput ? NODE_RADIUS * scale : 1 - NODE_RADIUS * scale);
+    }
+
+    function drawLinkNode(x, y, linked) {
+        ctx.beginPath();
+        ctx.arc(x * canvasWidth, y * canvasHeight, scale * LINK_RADIUS * canvasWidth, 0, 2 * Math.PI, false);
+        ctx.fillStyle = linked ? CIRCUIT_ACTIVE_LINK_COLOR : CIRCUIT_INACTIVE_LINK_COLOR;
+        ctx.fill();
+        ctx.lineWidth = scale * LINK_SIZE * LINK_BORDER_WIDTH * canvasWidth;
+        ctx.strokeStyle = CIRCUIT_LINK_BORDER_COLOR;
+        ctx.stroke();
+    }
+
+    function drawIONode(x, y, active) {
+        ctx.beginPath();
+        ctx.arc(x * canvasWidth, y * canvasHeight, scale * NODE_RADIUS * canvasWidth, 0, 2 * Math.PI, false);
+        ctx.fillStyle = active ? CIRCUIT_ACTIVE_NODE_COLOR : CIRCUIT_INACTIVE_NODE_COLOR;
+        ctx.fill();
+        ctx.lineWidth = scale * NODE_SIZE * NODE_BORDER_WIDTH * canvasWidth;
+        ctx.strokeStyle = CIRCUIT_NODE_BORDER_COLOR;
+        ctx.stroke();
+    }
+
+    function drawWire(x0, y0, x1, y1) {
+        ctx.beginPath();
+        ctx.moveTo(x0 * canvasWidth, y0 * canvasHeight);
+        ctx.lineTo(x1 * canvasWidth, y1 * canvasHeight);
+        ctx.lineWidth = scale * WIRE_WIDTH * canvasWidth;
+        ctx.strokeStyle = CIRCUIT_LINK_WIRE_COLOR;
+        ctx.stroke();
+    }
+    
+    function clearScreen() {
+        ctx.fillStyle = BACKGROUND_COLOR;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.fillStyle = NODE_REGION_COLOR;
+        ctx.fillRect(0, 0, getNodeRegionWidth() * canvasWidth, canvasHeight);
+        ctx.fillRect((1 - getNodeRegionWidth()) * canvasWidth, 0, canvasWidth, canvasHeight);
+    }
+
+    function drawCircuit(circuit) {
+        console.log(`Drawing circuit: ${circuit}`);
+
+        let x = circuit.position[0];
+        let y = circuit.position[1];
+
+        let width = getCircuitWidth(circuit);
+        let height = getCircuitHeight(circuit);
+
+        let left = x - width / 2;
+        let bottom = y - width / 2;
 
         ctx.fillStyle = circuit.color;
-        ctx.fillRect(x, y, width, height);
+        ctx.fillRect(left * canvasWidth, bottom * canvasHeight, width * canvasWidth, height * canvasHeight);
 
-        // Iterate input labels and draw them
-        let {inputPositions, outputPositions} = getLinkPositions(1.0, circuit);
+        // Iterate links and draw them
+        let inputPositions = getLinkPositions(circuit, true);
+        let outputPositions = getLinkPositions(circuit, false);
 
+        // TODO: read whether or not a node is linked, and change color
+        // or read the state of that node to draw color (maybe more useful)
         for (let i = 0; i < inputPositions.length; i++) {
             let pos = inputPositions[i];
             
-            drawLinkNode(pos[0], pos[1], scale, false);
+            drawLinkNode(pos[0], pos[1], false);
         }
 
         for (let i = 0; i < outputPositions.length; i++) {
             let pos = outputPositions[i];
 
-            drawLinkNode(pos[0], pos[1], scale, false);
+            drawLinkNode(pos[0], pos[1], false);
         }
 
+        // Draw wires
         for (let i = 0; i < circuit.links.length; i++) {
             let link = circuit.links[i];
 
             let otherCircuit = circuits[link.circuit];
-            let positions = getLinkPositions(1.0, otherCircuit);
+            let otherCircuitInputPositions = getLinkPositions(otherCircuit, true);
 
             let ourNode = outputPositions[link.input];
-            // TODO: why do i have to do such a roundabout thing
-            let otherNode = positions.inputPositions[link.output];
+            let otherNode = otherCircuitInputPositions[link.output];
 
-            drawLinkWire(ourNode[0], ourNode[1], otherNode[0], otherNode[1], scale);
+            drawWire(ourNode[0], ourNode[1], otherNode[0], otherNode[1]);
         }
     }
 
-    function drawNodes(scale, inputNodes, outputNodes) {
+    function drawNodes(inputNodes, outputNodes) {
         for (let nodeID in inputNodes) {
             let node = inputNodes[nodeID];
 
-            let position = [NODE_SIZE, node.position];
+            let position = [getNodeX(true), node.position];
 
-            drawIONode(position[0], position[1], scale, node.state);
+            drawIONode(position[0], position[1], node.state);
 
             for (let linkIndex in node.links) {
                 let link = node.links[linkIndex];
 
-                let positions = getLinkPositions(1.0, circuits[link.circuit]);
-                let otherNode = positions.inputPositions[link.output];
+                let inputPositions = getLinkPositions(circuits[link.circuit], true);
+                let otherNode = inputPositions[link.output];
 
-                drawLinkWire(position[0], position[1], otherNode[0], otherNode[1], scale);
+                drawWire(position[0], position[1], otherNode[0], otherNode[1]);
             }
         }
 
         for (let nodeID in outputNodes) {
             let node = outputNodes[nodeID];
 
-            let position = [1.0 - NODE_SIZE, node.position];
+            let position = [getNodeX(false), node.position];
 
-            drawIONode(position[0], position[1], scale, node.state);
+            drawIONode(position[0], position[1], node.state);
 
             for (let linkIndex in node.links) {
                 let link = node.links[linkIndex];
 
-                let positions = getLinkPositions(1.0, circuits[link.circuit]);
-                let otherNode = positions.outputPositions[link.input];
+                let outputPositions = getLinkPositions(circuits[link.circuit], false);
+                let otherNode = outputPositions[link.input];
 
-                drawLinkWire(position[0], position[1], otherNode[0], otherNode[1], scale);
+                drawWire(position[0], position[1], otherNode[0], otherNode[1]);
             }
         }
 
@@ -862,25 +911,22 @@ document.addEventListener("DOMContentLoaded", () => {
         if (selectedNodeID != null) {
             let node = selectedNodeIsInput ? inputNodes[selectedNodeID] : outputNodes[selectedNodeID];
             
-            let position = [selectedNodeIsInput ? 0 : 1, node.position];
-
-            drawLinkWire(position[0], position[1], mouseX, mouseY, scale);
+            drawWire(getNodeX(selectedNodeIsInput), node.position, mouseX, mouseY);
         }
     }
 
-    function drawCircuits(scale, circuits) {
+    function drawCircuits(circuits) {
         for (let id in circuits) {
-            drawCircuit(scale, circuits[id]);
+            drawCircuit(circuits[id]);
         }
 
         // Draw from the selected circuit/link to the cursor
         if (selectedCircuitID != null && selectedLinkIndex != null) {
             let circuit = circuits[selectedCircuitID];
 
-            let positions = getLinkPositions(1.0, circuit);
-            let startNode = selectedLinkIsInput ? positions.inputPositions[selectedLinkIndex] : positions.outputPositions[selectedLinkIndex];
+            let startNode = getLinkPositions(circuit, selectedLinkIsInput)[selectedLinkIndex];
 
-            drawLinkWire(startNode[0], startNode[1], mouseX, mouseY, scale);
+            drawWire(startNode[0], startNode[1], mouseX, mouseY);
         }
     }
 
@@ -888,14 +934,15 @@ document.addEventListener("DOMContentLoaded", () => {
         let canvasBorderDiv = document.getElementById("canvasBorder");
         let rect = canvasBorderDiv.getBoundingClientRect();
 
+        // TODO: bad place to put this
         canvasWidth = canvasBorderDiv.offsetWidth;
         canvasHeight = canvasBorderDiv.offsetHeight;
         canvasRect = rect;
 
         if (selectedCircuitID != null && lmbDown && selectedLinkIndex == null) {
-            let newPosition = [mouseX - CIRCUIT_SIZE / 2, mouseY - getCircuitHeight(circuits[selectedCircuitID]) / 2];
+            let newPosition = [mouseX, mouseY];
 
-            if (newPosition[0] <= INPUT_NODE_POSITION || newPosition[0] + CIRCUIT_SIZE >= OUTPUT_NODE_POSITION) {
+            if (newPosition[0] <= getNodeRegionWidth() || newPosition[0] + getCircuitWidth(circuits[selectedCircuitID]) >= (1 - getNodeRegionWidth())) {
                 return;
             }
 
@@ -950,8 +997,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function draw() {
         clearScreen();
-        drawCircuits(scale, circuits);
-        drawNodes(scale, inputNodes, outputNodes);
+        drawCircuits(circuits);
+        drawNodes(inputNodes, outputNodes);
     }
 
     // 60 fps
