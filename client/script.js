@@ -302,10 +302,11 @@ const SELECTION_STRUCTURE = {
 };
 
 // TODO: these values probably have a standard, find it and use it
-const LONG_PRESS_MINIMUM_ELAPSED = 1;
-const DOUBLE_TAP_MAXIMUM_ELAPSED = 0.2;
+// Default long press is 500ms, I'm using a shorter time because its faster
+const LONG_PRESS_MINIMUM_ELAPSED = 0.2;
+const DOUBLE_TAP_MAXIMUM_ELAPSED = 0.3;
 
-const DRAG_DISTANCE_MINIMUM = 0;
+const DRAG_DISTANCE_MINIMUM = 0.05;
 const DRAG_ELAPSED_MINIMUM = 0;
 
 let mouseX = 0;
@@ -553,36 +554,19 @@ function spawnOutputNode(y) {
 }
 
 function clearLink(outputCircuitID, outputIndex) {
-    let foundLink = false;
-
-    // TODO: can we break here?
     for (let circuitID in circuits) {
+        if (circuitID == outputCircuitID) continue;
+
         let circuit = circuits[circuitID];
 
-        for (let i = 0; i < circuit.links.length; i++) {
-            let link = circuit.links[i];
-
-            if (link.circuit == outputCircuitID && link.output == outputIndex) {
-                circuit.links.splice(i, 1);
-
-                foundLink = true;
-            }
-        }
+        circuit.links = circuit.links.filter(link => link.circuit != outputCircuitID || link.output != outputIndex);
     }
 
     // Check that the link is not coming from an input node
-    if (!foundLink) {
-        for (let inputNodeID in inputNodes) {
-            let inputNode = inputNodes[inputNodeID];
+    for (let inputNodeID in inputNodes) {
+        let inputNode = inputNodes[inputNodeID];
 
-            for (let i = 0; i < inputNode.links.length; i++) {
-                let link = inputNode.links[i];
-
-                if (link.circuit == outputCircuitID && link.output == outputIndex) {
-                    inputNode.links.splice(i, 1);
-                }
-            }
-        }
+        inputNode.links = inputNode.links.filter(link => link.circuit != outputCircuitID || link.output != outputIndex);
     }
 
     circuitChanged = true;
@@ -737,15 +721,54 @@ function tapAction(x, y) {
     }
 }
 
+function deleteCircuit(circuitID) {
+    // State before
+    let circuit = circuits[circuitID];
+
+    // Look for all links and delete them
+    for (let inputIndex = 0; inputIndex < circuit.inputLabels.length; inputIndex++) {
+        clearLink(circuitID, inputIndex);
+    }
+
+    // Delete output node links
+    for (let nodeID in outputNodes) {
+        let outputNode = outputNodes[nodeID];
+
+        for (let i = 0; i < outputNode.links.length; i++) {
+            let link = outputNode.links[i];
+
+            if (link.circuit == circuitID) {
+                outputNode.links = [];
+
+                break;
+            }
+        }
+    }
+
+    // Delete the circuit
+    delete circuits[circuitID];
+
+    circuitChanged = true;
+}
+
 // Also activated by right click on PC
 // TODO: on PC, a long press action should not be invoked if the position of the object changed significantly
 function longPressAction(x, y) {
     let currentSelection = getSelected(x, y);
 
+    console.log("Long press!");
 }
 
 function doubleTapAction(x, y) {
     let currentSelection = getSelected(x, y);
+
+    // If double tapped on a circuit or link of circuit
+    if (currentSelection.circuitID != null) {
+        // If double tapped on circuit itself
+        if (previousSelection.circuitID == currentSelection.circuitID && currentSelection.linkIndex == null) {
+            deleteCircuit(currentSelection.circuitID);
+        }
+    }
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/API/Touch_events
@@ -791,12 +814,12 @@ function invokeAppropriateAction(x, y) {
 
     if (!isDragging() && touchTimeElapsed > LONG_PRESS_MINIMUM_ELAPSED) {
         longPressAction(x, y);
-    } else if (timeSinceLastTap != null && timeSinceLastTap < DOUBLE_TAP_MAXIMUM_ELAPSED) {
+    } else if (!isDragging() && timeSinceLastTap != null && timeSinceLastTap < DOUBLE_TAP_MAXIMUM_ELAPSED) {
         doubleTapAction(x, y);
-
-        lastTapTimestamp = currentTimestamp;
     } else {
         tapAction(x, y);
+
+        lastTapTimestamp = currentTimestamp;
     }
 }
 
@@ -806,7 +829,7 @@ function isDragging() {
         let timeElapsedHeld = ((new Date()) - tapBeginTimestamp) / 1000;
         let distanceTravelled = distance(tapBeginMouseX, tapBeginMouseY, mouseX, mouseY);
 
-        if (timeElapsedHeld >= DRAG_ELAPSED_MINIMUM && distanceTravelled >= DRAG_DISTANCE_MINIMUM) {
+        if (timeElapsedHeld >= DRAG_ELAPSED_MINIMUM && distanceTravelled >= DRAG_DISTANCE_MINIMUM * scale) {
             return true;
         }
     }
@@ -821,8 +844,7 @@ function mobileTouchMove(event) {
     mouseX = cursorPosition[0];
     mouseY = cursorPosition[1];
 
-    if (isDragging())
-        dragAction(mouseX, mouseY);
+    dragAction(mouseX, mouseY);
 }
 
 function computerMouseDown(event) {
@@ -868,8 +890,7 @@ function computerMouseMove(event) {
     mouseX = cursorPosition[0];
     mouseY = cursorPosition[1];
 
-    if (isDragging())
-        dragAction(mouseX, mouseY);
+    dragAction(mouseX, mouseY);
 }
 
 // Inclusive
