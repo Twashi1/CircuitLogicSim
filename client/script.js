@@ -601,7 +601,7 @@ function dragAction(x, y) {
     let currentSelection = getSelected(x, y);
 
     // If a circuit is selected (not a link of the circuit), and previous selection was also a circuit (preventing us from moving circuit when we're making links), move to cursor position
-    if (currentSelection.circuitID != null && currentSelection.linkIndex == null && previousSelection.circuitID != null) {
+    if (currentSelection.circuitID != null && currentSelection.linkIndex == null && previousSelection.linkIndex == null && previousSelection.circuitID == currentSelection.circuitID) {
         let circuit = circuits[currentSelection.circuitID];
         let circuitHalfWidth = getCircuitWidth(circuit) / 2;
         let circuitHalfHeight = getCircuitHeight(circuit) / 2;
@@ -682,12 +682,10 @@ function tapAction(x, y) {
         // Create link between two circuits
         else if (previousSelection.linkIndex != null && currentSelection.linkIndex != null) {
             // Check that the type of links are opposite
-            if (previousSelection.isInput != currentSelection.isInput) {
-                if (previousSelection.isInput)
-                    addLink(previousSelection.circuitID, previousSelection.linkIndex, currentSelection.circuitID, currentSelection.linkIndex);
-                else
-                    addLink(currentSelection.circuitID, currentSelection.linkIndex, previousSelection.circuitID, previousSelection.linkIndex);
-            }
+            if (previousSelection.isInput === true && currentSelection.isInput === false)
+                addLink(currentSelection.circuitID, currentSelection.linkIndex, previousSelection.circuitID, previousSelection.linkIndex);
+            else if (currentSelection.isInput === true && previousSelection.isInput === false)
+                addLink(previousSelection.circuitID, previousSelection.linkIndex, currentSelection.circuitID, currentSelection.linkIndex);
         }
     }
 }
@@ -1037,7 +1035,6 @@ document.addEventListener("DOMContentLoaded", () => {
         drawWiresToCursor();
     }
 
-    // 60 fps
     window.setInterval(update, FPS_RATE);
     window.setInterval(simulationTick, SIMULATION_RATE);
 });
