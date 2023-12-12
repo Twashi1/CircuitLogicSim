@@ -1,18 +1,40 @@
-.canvasDiv {
-    width: 50%;
-    margin: auto;
+html {
+    font-family: Arial;
+}
+
+.paletteButton {
+}
+
+.buttonsList {
+    list-style-type: none;
+}
+
+.buttonsListItem {
+    list-style-type: none;
+}
+
+#circuitScaleValue {
+    display: inline;
+}
+
+/* From comment on this: */
+/* https://stackoverflow.com/questions/28358595/css-put-something-to-the-left-of-a-centered-element */
+.canvasContainerDiv {
+    text-align: center;
+}
+
+.circuitAreaDiv {
+    display: inline-block;
+    position: relative;
+}
+
+.paletteDiv {
+    position: relative;
 }
 
 .canvasBorder {
     border: 0.1em solid #444444;
     border-radius: 0.5em;
-    position: relative;
-    width: 50em;
-    height: 50em;
-}
-
-.paletteList {
-    list-style-type: '';
-    position: absolute;
-    left: 20em;
+    width: 80vw;
+    height: 80vh;
 }

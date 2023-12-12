@@ -327,12 +327,17 @@ const CIRCUIT_SIZE = 0.08;
 const NODE_SIZE = 0.02;
 const NODE_BORDER_WIDTH = 0.1;
 const NODE_RADIUS = (NODE_SIZE + NODE_SIZE * NODE_BORDER_WIDTH) / 2;
+const NODE_PADDING = 0.01;
 
 const LINK_SIZE = 0.01;
 const LINK_BORDER_WIDTH = 0.2;
 const LINK_RADIUS = (LINK_SIZE + LINK_SIZE * LINK_BORDER_WIDTH) / 2;
 
 const WIRE_WIDTH = 0.005;
+
+const CIRCUIT_TEXT_SCALE = 1.5;
+const LABEL_TEXT_SCALE = 1;
+const NODE_TEXT_SCALE = 1;
 
 function aabbIntersect(left1, right1, bot1, top1, left2, right2, bot2, top2) {
     return !((right1[0] < left2[0] || left1[0] > right2[0]) && (top1[1] < bot2[1] || bot1[1] > top2[1]));
@@ -486,6 +491,8 @@ function getSelected(x, y) {
 }
 
 function addInputNodeLink(nodeID, circuitID, linkIndex) {
+    if (checkCircuitInputLinkAlreadySet(circuitID, linkIndex)) return;
+
     let inputNode = inputNodes[nodeID];
 
     inputNode.links.push({
@@ -509,7 +516,21 @@ function addOutputNodeLink(nodeID, circuitID, linkIndex) {
     circuitChanged = true;
 }
 
+function checkOverlappingNode(y, nodes) {
+    for (let nodeID in nodes) {
+        let node = nodes[nodeID];
+
+        if (Math.abs(node.position - y) <= (NODE_RADIUS * 2 + NODE_PADDING) * scale) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 function spawnInputNode(y) {
+    if (checkOverlappingNode(y, inputNodes)) return;
+
     let newID = generateID(inputNodes);
 
     inputNodes[newID] = {
@@ -520,6 +541,8 @@ function spawnInputNode(y) {
 }
 
 function spawnOutputNode(y) {
+    if (checkOverlappingNode(y, outputNodes)) return;
+
     let newID = generateID(outputNodes);
 
     outputNodes[newID] = {
@@ -565,9 +588,36 @@ function clearLink(outputCircuitID, outputIndex) {
     circuitChanged = true;
 }
 
+function checkCircuitInputLinkAlreadySet(outputCircuitID, outputIndex) {
+    // Look if a different circuit links to it
+    for (let circuitID in circuits) {
+        let circuit = circuits[circuitID];
+
+        for (let linkIndex = 0; linkIndex < circuit.links.length; linkIndex++) {
+            let link = circuit.links[linkIndex];
+
+            if (link.circuit == outputCircuitID && link.output == outputIndex)
+                return true;
+        }
+    }
+
+    // Look if an input circuit links to it
+    for (let inputNodeID in inputNodes) {
+        let inputNode = inputNodes[inputNodeID];
+
+        for (let linkIndex = 0; linkIndex < inputNode.links.length; linkIndex++) {
+            let link = inputNode.links[linkIndex];
+
+            if (link.circuit == outputCircuitID && link.output == outputIndex)
+                return true;
+        }
+    }
+
+    return false;
+}
+
 function addLink(inputCircuitID, inputIndex, outputCircuitID, outputIndex) {
-    // TODO: Search for that node being set in input circuit
-    // TODO: Search for that node being set in output circuit
+    if (checkCircuitInputLinkAlreadySet(outputCircuitID, outputIndex)) return;
 
     let inputCircuit = circuits[inputCircuitID];
 
@@ -647,10 +697,7 @@ function tapAction(x, y) {
         else if (currentSelection.nodeID != null) {
             // If they tapped on an input node, switch its state
             if (currentSelection.isInput)
-            {
                 inputNodes[currentSelection.nodeID].state = !inputNodes[currentSelection.nodeID].state;
-                console.log(`Selected: ${currentSelection.nodeID}`);
-            }    
             // If they tapped on an output node, clear it
             else
                 clearOutputNode(currentSelection.nodeID);
@@ -951,7 +998,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("saveCircuitButton").addEventListener("click", saveCircuitButtonClick);
     document.getElementById("circuitScaleInput").addEventListener("input", changeScaleSliderValue);
 
-    document.getElementById("circuitScaleInput").value = (1.0 - SCALE_MINIMUM) / (SCALE_MAXIMUM - SCALE_MINIMUM);
+    document.getElementById("circuitScaleInput").value = ((1.0 - SCALE_MINIMUM) / (SCALE_MAXIMUM - SCALE_MINIMUM)) * 100;
 
     addInitialPaletteButtons();
 
@@ -1013,8 +1060,7 @@ document.addEventListener("DOMContentLoaded", () => {
         canvas.width = canvas.offsetWidth;
         canvas.height = canvas.offsetHeight;
 
-        // TODO: base off of the size of canvas
-        ctx.font = "30px Arial";
+        ctx.font = `${CIRCUIT_TEXT_SCALE * scale}vw Arial`;
         ctx.textAlign = "center";
         ctx.textBaseline = 'middle';
 
@@ -1030,9 +1076,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function draw() {
         clearScreen();
+        drawWiresToCursor();
         drawCircuits(circuits);
         drawNodes(inputNodes, outputNodes);
-        drawWiresToCursor();
     }
 
     window.setInterval(update, FPS_RATE);
@@ -1086,15 +1132,28 @@ function drawCircuit(circuit) {
     let left = x - width / 2;
     let bottom = y - width / 2;
 
+    // Iterate links and draw them
+    let inputPositions = getLinkPositions(circuit, true);
+    let outputPositions = getLinkPositions(circuit, false);
+
+    // Draw wires
+    for (let i = 0; i < circuit.links.length; i++) {
+        let link = circuit.links[i];
+
+        let otherCircuit = circuits[link.circuit];
+        let otherCircuitInputPositions = getLinkPositions(otherCircuit, true);
+
+        let ourNode = outputPositions[link.input];
+        let otherNode = otherCircuitInputPositions[link.output];
+
+        drawWire(ourNode[0], ourNode[1], otherNode[0], otherNode[1]);
+    }
+
     ctx.fillStyle = circuit.color;
     ctx.fillRect(left * canvasWidth, bottom * canvasHeight, width * canvasWidth, height * canvasHeight);
 
     ctx.fillStyle = multiplyColor(circuit.color, 0.5);
     ctx.fillText(circuit.name, x * canvasWidth, y * canvasHeight);
-
-    // Iterate links and draw them
-    let inputPositions = getLinkPositions(circuit, true);
-    let outputPositions = getLinkPositions(circuit, false);
 
     // TODO: read whether or not a node is linked, and change color
     // or read the state of that node to draw color (maybe more useful)
@@ -1108,19 +1167,6 @@ function drawCircuit(circuit) {
         let pos = outputPositions[i];
 
         drawLinkNode(pos[0], pos[1], false);
-    }
-
-    // Draw wires
-    for (let i = 0; i < circuit.links.length; i++) {
-        let link = circuit.links[i];
-
-        let otherCircuit = circuits[link.circuit];
-        let otherCircuitInputPositions = getLinkPositions(otherCircuit, true);
-
-        let ourNode = outputPositions[link.input];
-        let otherNode = otherCircuitInputPositions[link.output];
-
-        drawWire(ourNode[0], ourNode[1], otherNode[0], otherNode[1]);
     }
 }
 

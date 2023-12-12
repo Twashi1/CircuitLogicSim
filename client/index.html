@@ -5,7 +5,7 @@
 	<meta charset="UTF-8"> 
 	<meta http-equiv="X-UA-Compatible" content="IE=edge"> 
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link rel="stylesheet" href="ns.css">
+	<link rel="stylesheet" href="styles.css">
 	
 	<title>LogicSim</title>
 </head> 
@@ -20,6 +20,7 @@
 		<li><b>Right click</b> is same as a <b>long press</b> on mobile</li>
 		<li><b>Double left click</b> is same as <b>double tap</b> on mobile</li>
 	</ul>
+	<hr>
 	<ul>
 		<li>Left click buttons to add logic gates</li>
 		<li>Left click circuit/node and move around with cursor</li>
@@ -29,11 +30,15 @@
 		<li>Right click on a gate or input/output node to rename it</li>
 		<li>Double left click on a gate or node to delete connection(s)</li>
 	</ul>
-	
-	<button id="circuitButton">Get circuit</button>
-	<button id="saveCircuitButton">Save circuit</button>
-	<input type="text" id="circuitNameInput" placeholder="Circuit name" maxlength=16>
-	Scale <input type="range" id="circuitScaleInput" min="1" max="100" value="50" class="slider"> <p id="circuitScaleValue">1</p>
+	<hr>
+	<ul class="buttonsList">
+	<li class="buttonsListItem">
+		<button id="circuitButton">Get circuit</button>
+		<button id="saveCircuitButton">Save circuit</button>
+	</li>
+	<li class="buttonsListItem"><input type="text" id="circuitNameInput" placeholder="Circuit name" maxlength=16></li>
+	<li class="buttonsListItem">Scale <input type="range" id="circuitScaleInput" min="0" max="100" value="0" class="slider"> <p id="circuitScaleValue">100%</p></li>
+	</ul>
 
 	<div class="canvasContainerDiv">
 		<div class="circuitAreaDiv">
