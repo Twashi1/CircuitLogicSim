@@ -31,25 +31,57 @@
 		<li>Double left click on a gate or node to delete connection(s)</li>
 	</ul>
 	<hr>
-	<ul class="buttonsList">
-	<li class="buttonsListItem">
-		<button id="circuitButton">Get circuit</button>
-		<button id="saveCircuitButton">Save circuit</button>
-	</li>
-	<li class="buttonsListItem"><input type="text" id="circuitNameInput" placeholder="Circuit name" maxlength=16></li>
-	<li class="buttonsListItem">Scale <input type="range" id="circuitScaleInput" min="0" max="100" value="0" class="slider"> <p id="circuitScaleValue">100%</p></li>
-	</ul>
-
+	<div class="authenticateDiv">
+		<div class="loginDiv authenticateDivChild">
+			<form id="loginForm" action="" method="POST">
+				<ul class="listItemUnmarked">
+					<li><input name="username" type="text" placeholder="Username"></li>
+					<li><input name="password" type="password" placeholder="Password"></li>
+					<li><input type="submit" value="Log in"></li>
+					<li><p class="feedbackResponse" id="loginResponse"></p></li>
+				</ul>
+			</form>
+		</div>
+		<div class="createAccountDiv authenticateDivChild">
+			<form id="createAccountForm" action="" method="POST">
+				<ul class="listItemUnmarked">
+					<li><input name="username" type="text" placeholder="Username"></li>
+					<li><input name="password" type="password" placeholder="Password" id="registerPasswordInput"></li>
+					<li><input name="confirmPassword" type="password" placeholder="Confirm password" id="confirmPasswordInput"></li>
+					<li><input type="submit" value="Register"></li>
+					<li><p class="feedbackResponse" id="registerResponse"></p></li>
+				</ul>
+			</form>
+		</div>
+	</div>
+	<div id="loggedInDiv" class="hidden">
+		Logged in as: <p class="inlineParagraphDataValue" id="loggedInUsername"></p>
+	</div>
+	<hr>
+	<div class="centeredDiv">
+		<div class="centeredDivChild">
+			<form id="circuitSaveForm" action="" method="POST">
+				<ul class="listItemUnmarked">
+					<li><input name="circuitName" type="text" placeholder="Circuit name" maxlength=16></li>
+					<li><input type="submit" value="Save circuit"></li>
+					<li><p class="feedbackResponse" id="circuitSaveResponse"></p></li>
+				</ul>
+			</form>
+			<hr>
+			<ul class="listItemUnmarked">
+				<li><button id="circuitGetButton">Get saved circuits</button></li>
+				<li>Scale: <input type="range" id="circuitScaleInput" min="0" max="100" value="0" class="slider"><p id="circuitScaleValue" class="inlineParagraphDataValue">100%</p></li>
+			</ul>
+			<p id="responseText" class="fadeShow"></p>
+		</div>
+	</div>
 	<div class="canvasContainerDiv">
 		<div class="circuitAreaDiv">
 			<div class="canvasBorder" id="canvasBorder">
 				<canvas id="canvas">Browser doesn't support canvas</canvas>
 			</div>
 		</div>
-		<div class="paletteDiv">
-			<button id="paletteButton" class="paletteButton" data-circuittype="0">AND</button>
-			<button id="paletteButton" class="paletteButton" data-circuittype="1">OR</button>
-			<button id="paletteButton" class="paletteButton" data-circuittype="2">NOT</button>				
+		<div id="paletteDiv" class="paletteDiv">	
 		</div>
 	</div>
 	

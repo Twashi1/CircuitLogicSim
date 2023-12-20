@@ -1,85 +1,99 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
-// TODO: delete/move input/output nodes
+// TODO: move input/output nodes
 // TODO: right click/long press functionality
 // TODO: add labels to gate links
 // TODO: recursive circuits
-// TODO: gates should be brighter
 // TODO: should use some sort of map type instead of treating an object as a map
 // TODO: use bootstrap
+// TODO: log out button
 
-const FPS = 60;
-const FPS_RATE = 1000 / FPS;
-const SIMULATION_TICKS_PER_SECOND = 20;
-const SIMULATION_RATE = 1000 / SIMULATION_TICKS_PER_SECOND;
+// TODO: seems like only the first child gate is imported correctly?
+// TODO: maybe some issue like we had before with chaining circuits, state not being stored properly, or maybe same state is being overwritten?
+// TODO: deleting a circuit doesn't update the state of the output node
 
-class State {
-    constructor(size) {
-        this.size = size;
-        this.memory = new Array(size).fill(false);
-        this.currentIndex = 0;
+/*
+given circuits, input nodes, output nodes
+to have proper ordering, signals have to propogate through circuit, necessitating linked structure
 
-        // https://stackoverflow.com/questions/21988909/is-it-possible-to-create-a-fixed-length-array-in-javascript
-        if (Object.seal) {
-            Object.seal(this.memory);
+*/
+
+function simulateDirect(circuits, inputNodes, outputNodes) {
+    // Circuit could contain "representation" component -> an internal circuit
+    // Circuit contains a "type" value -> the operation to be performed
+    for (nodeID in inputNodes) {
+        let inputNode = inputNodes[nodeID];
+
+        // Look at input node links
+        for (linkIndex in inputNode.links) {
+            let link = inputNode.links[linkIndex];
+
+            // Get corresponding circuit
+            let nextCircuit = circuits[link.circuit];
+            // Set the input value
+            nextCircuit.inputValues[link.output] = inputNode.state;
+            // Propogate the signal
+            // TODO: need BFS to have proper ordering
+            propogateSignal(circuits, nextCircuit);
         }
     }
 
-    allocate() {
-        if (this.currentIndex == this.size) {
-            throw new Error("Ran out of memory, too many inputs/outputs")
+    for (nodeID in outputNodes) {
+        let outputNode = outputNodes[nodeID];
+
+        if (outputNode.links.length == 1) {
+            let link = outputNode.links[0];
+
+            let nextCircuit = circuits[link.circuit];
+            // Read output value
+            outputNode.state = nextCircuit.outputValues[link.input];
         }
-    
-        let allocated = this.currentIndex;
-    
-        this.currentIndex += 1;
-    
-        return allocated;
     }
-
-    boundsCheck(index) {
-        if (index >= 0 && index < this.size) return true;
-        // TODO: very bad
-        if (index == undefined || index == null) return false;
-
-        throw new Error(`Out of bounds: ${index} >= ${this.size}`);        
-    }
-
-    setValue(index, value) {
-        if (this.boundsCheck(index)) this.memory[index] = value;
-    }
-    
-    getValue(index) {
-        if (this.boundsCheck(index)) return this.memory[index];
-
-        return false;
-    }   
 }
 
-const LOGICAL_REPRESENTATION = {
-    "inputSlots": [],
-    "outputSlots": [],
-    "operation": null,
-    "children": []
-};
+function propogateSignal(circuits, circuit) {
+    if (circuit.representation == null) {
+        // Perform operation upon its current state
+        let operation = GATE_TYPE[circuit.type];
 
-function binaryOperation(representation, operation) {
-    let a = globalState.getValue(representation.inputSlots[0]);
-    let b = globalState.getValue(representation.inputSlots[1]);
+        operation(circuit);
+    } else {
+        // TODO: doesn't preserve ordering
+        let index = 0;
 
-    globalState.setValue(representation.outputSlots[0], operation(a, b));
-}
+        for (nodeID in circuit.representation.inputNodes) {
+            circuit.representation.inputNodes[nodeID].state = circuit.inputValues[index++];
+        }
 
-function unaryOperation(representation, operation) {
-    let a = globalState.getValue(representation.inputSlots[0]);
+        simulateDirect(circuit.representation.circuits, circuit.representation.inputNodes, circuit.representation.outputNodes);
 
-    globalState.setValue(representation.outputSlots[0], operation(a));
-}
-
-function recursiveGate(representation) {
-    for (child of representation.children) {
-        child.operation(child);
+        index = 0;
+        for (nodeID in circuit.representation.outputNodes) {
+            circuit.outputValues[index++] = circuit.representation.outputNodes[nodeID].state;
+        }
     }
+
+    for (linkIndex in circuit.links) {
+        let link = circuit.links[linkIndex];
+
+        let nextCircuit = circuits[link.circuit];
+        nextCircuit.inputValues[link.output] = circuit.outputValues[link.input];
+
+        propogateSignal(circuits, nextCircuit);
+    }
+}
+
+function binaryOperation(circuit, operation) {
+    let leftOperand = circuit.inputValues[0];
+    let rightOperand = circuit.inputValues[1];
+
+    circuit.outputValues[0] = operation(leftOperand, rightOperand);
+}
+
+function unaryOperation(circuit, operation) {
+    let operand = circuit.inputValues[0];
+
+    circuit.outputValues[0] = operation(operand);
 }
 
 const GATE_TYPE_AND = 0;
@@ -91,133 +105,13 @@ const GATE_TYPE = {
     0: (representation) => binaryOperation(representation, (a, b) => a && b), // AND
     1: (representation) => binaryOperation(representation, (a, b) => a || b), // OR
     2: (representation) => unaryOperation(representation, (a) => !a),         // NOT
-    3: recursiveGate
+    3: (representation) => console.log("Invalid usage of gate type")
 };
 
-function convertCircuitToLogicalRepresenation(populatedList, circuitRepresentations, circuitID, circuits, prevCircuitOutputSlot, prevCircuitOutputSlotIndex, representation)
-{
-    let circuitAlreadyExisted = circuitID in circuitRepresentations;
-    let circuitRepresentation = circuitAlreadyExisted ? circuitRepresentations[circuitID] : JSON.parse(JSON.stringify(LOGICAL_REPRESENTATION));
-
-    if (circuitID in populatedList) return circuitRepresentation;
-
-    // Check if circuit is populated
-    // If the circuit is new, it is by definition unpopulated
-    let isPopulated = circuitAlreadyExisted;
-
-    for (let inputSlotIndex in circuitRepresentation.inputSlots) {
-        if (circuitRepresentation.inputSlots[inputSlotIndex] == null) {
-            isPopulated = false;
-            break;
-        }
-    }
-
-    // If circuit is already populated, exit
-    if (isPopulated)
-    {
-        populatedList.push(circuitID);
-        return circuitRepresentation;
-    }
-
-    let circuit = circuits[circuitID];
-
-    // Populate basic properties like the operation, the state to use, and the output slots
-    if (!circuitAlreadyExisted) {
-        // Get the operation the gate performs
-        circuitRepresentation.operation = GATE_TYPE[circuit.type];
-        // Generate output slots (as many as there are output labels)
-        for (let i = 0; i < circuit.outputLabels.length; i++) {
-            circuitRepresentation.outputSlots.push(
-                globalState.allocate()
-            );
-        }
-        // Generate input slots
-        for (let i = 0; i < circuit.inputLabels.length; i++) {
-            circuitRepresentation.inputSlots.push(
-                null
-            );
-        }
-
-        circuitRepresentations[circuitID] = circuitRepresentation;
-    }
-    // Read input slot
-    // Would be null for a circuit that reads from an input node or output node
-    if (prevCircuitOutputSlot != null && prevCircuitOutputSlotIndex != null) {
-        circuitRepresentation.inputSlots[prevCircuitOutputSlotIndex] = prevCircuitOutputSlot;
-    }
-
-    for (let linkIndex in circuit.links) {
-        let link = circuit.links[linkIndex];
-
-        circuitRepresentations[link.circuit] = convertCircuitToLogicalRepresenation(
-            populatedList,
-            circuitRepresentations,
-            link.circuit,
-            circuits,
-            circuitRepresentation.outputSlots[link.input],
-            link.output, // Refers to the input slot index within the linked circuit
-            representation
-        );
-    }
-
-    return circuitRepresentation;
-}
-
-function convertToLogicalRepresentation(circuits, inputNodes, outputNodes) {
-    let representation = JSON.parse(JSON.stringify(LOGICAL_REPRESENTATION));
-    globalState = new State(1024);
-
-    // Maps circuit IDs to the logical representation of that circuit
-    let circuitRepresentations = {};
-    // List of circuit IDs that are fully populated
-    let populatedList = [];
-
-    // Iterate input nodes
-    for (let inputID in inputNodes) {
-        let inputNode = inputNodes[inputID];
-        let inputSlot = globalState.allocate();
-        // Populate input slots of logical representation
-        representation.inputSlots.push(inputSlot);
-
-        // Iterate links of each input node
-        for (let linkIndex in inputNode.links) {
-            let link = inputNode.links[linkIndex];
-
-            // Load circuit representation
-            let circuitRepresentation = convertCircuitToLogicalRepresenation(populatedList, circuitRepresentations, link.circuit, circuits, null, null, representation);
-            // Populate input slot of circuit
-            circuitRepresentation.inputSlots[link.output] = inputSlot;
-        }
-    }
-
-    for (let outputID in outputNodes) {
-        // Populate output slots of logical representation
-        let outputNode = outputNodes[outputID];
-        let outputSlotIndex = representation.outputSlots.length;
-
-        representation.outputSlots.push(null);
-
-        // TODO: should only be 0 or 1 links
-        for (let linkIndex in outputNode.links) {
-            let link = outputNode.links[linkIndex];
-
-            // Load circuit representation
-            let circuitRepresentation = convertCircuitToLogicalRepresenation(populatedList, circuitRepresentations, link.circuit, circuits, null, null, representation);
-            // Populate output slot of representation
-            representation.outputSlots[outputSlotIndex] = circuitRepresentation.outputSlots[link.input];
-        }
-    }
-
-    // Add circuitRepresentations as children to the principal representation
-    for (let circuitID in circuitRepresentations) {
-        representation.children.push(circuitRepresentations[circuitID]);
-    }
-
-    // Set operation to recursive
-    representation.operation = GATE_TYPE[GATE_TYPE_RECURSIVE];
-
-    return representation;
-}
+const FPS = 60;
+const FPS_RATE = 1000 / FPS;
+const SIMULATION_TICKS_PER_SECOND = 20;
+const SIMULATION_RATE = 1000 / SIMULATION_TICKS_PER_SECOND;
 
 const BACKGROUND_COLOR = "#cccccc";
 const NODE_REGION_COLOR = "#aaaaaa";
@@ -243,51 +137,166 @@ let circuits = {};
 
 let inputNodes = {};
 let outputNodes = {};
-let circuitChanged = true; // Has circuit changed since last simulation tick
-let currentLogicalRepresenation = null; // The current logical representation of the circuit, updated each time a change is made
-let globalState = new State(1024);
+
+let currentUsername = null;
+let currentSessionToken = null;
 
 const WEBSITE_URL = "http://127.0.0.1:8090";
 
-function getCircuitButtonClick() {
-    fetch(WEBSITE_URL + "/circuit")
-        .then(async (response) => {
-            let circuitText = await response.text();
-            let circuitData = JSON.parse(circuitText);
+function switchToLoggedIn(username, session) {
+    currentUsername = username;
+    currentSessionToken = session;
 
-            circuits = circuitData["circuits"];
-            inputNodes = circuitData["inputNodes"];
-            outputNodes = circuitData["outputNodes"];
-        });
+    document.querySelectorAll(".authenticateDiv").forEach(div => div.classList.add("hidden"));
+    document.getElementById("loggedInUsername").innerText = currentUsername;
+    document.getElementById("loggedInDiv").classList.remove("hidden");
 }
 
-function saveCircuitButtonClick() {
-    let circuitName = document.getElementById("circuitNameInput").value;
+function switchToLoggedOff() {
+    currentUsername = null;
+    currentSessionToken = null;
 
-    // TODO: doubt this will stop bad inputs
-    // TODO: send error message, some visual feedback
-    // Check string is not empty
-    if (circuitName.length == 0) {
-        return;
-    }
-    // Check string is alpha numeric
-    if (!circuitName.match(/^[a-zA-Z0-9]+$/)) {
-        return;
-    }
+    document.querySelectorAll(".authenticateDiv").forEach(div => div.classList.remove("hidden"));
+    document.getElementById("loggedInDiv").classList.add("hidden");
+}
 
-    // https://developer.mozilla.org/en-US/docs/Web I/XMLHttpRequest/send
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/saveCircuit", true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    xhr.onreadystatechange = () => {
-        if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {}
-    };
-    xhr.send(JSON.stringify(
+const HEADERS = {
+    "Content-Type": "application/json",
+    "Access-Control-Origin": "*" // TODO: check this one
+};
+
+function login(event) {
+    // Not necessary since there isn't an action associated with the form anyway afaik
+    event.preventDefault();
+
+    // https://stackoverflow.com/questions/588263/how-can-i-get-all-a-forms-values-that-would-be-submitted-without-submitting
+    let formData = Object.fromEntries(new FormData(document.getElementById("loginForm")));
+
+    // https://blog.hubspot.com/website/javascript-fetch-api#:~:text=Making%20POST%20Requests&text=To%20make%20a%20POST%20request,the%20body%20of%20the%20request.&text=This%20code%20will%20collect%20data,it%20via%20a%20POST%20request.
+    fetch(`${WEBSITE_URL}/login`,
         {
-            "data": {"circuits": circuits, "inputNodes": inputNodes ,"outputNodes": outputNodes},
-            "name": circuitName
+            method: "POST",
+            headers: HEADERS,
+            body: JSON.stringify(formData)
         }
-    ));
+    ).then(async response => {
+        let text = await response.text();
+
+        switch (response.status) {
+            case 200:
+                switchToLoggedIn(formData.username, text);
+                break;
+            default:
+                document.getElementById("loginResponse").innerText = `Error ${response.status}: ${text}`;
+                break;
+        }
+    });
+}
+
+function register(event) {
+    event.preventDefault();
+
+    let formData = Object.fromEntries(new FormData(document.getElementById("createAccountForm")));
+
+    fetch(`${WEBSITE_URL}/createAccount`,
+        {
+            method: "POST",
+            headers: HEADERS,
+            body: JSON.stringify(formData)
+        }
+    ).then(async response => {
+        let text = await response.text();
+
+        switch (response.status) {
+            case 200:
+                switchToLoggedIn(formData.username, text);
+                break;
+            default:
+                document.getElementById("registerResponse").innerText = `Error ${response.status}: ${text}`;
+                break;
+        }
+    });
+}
+
+function addFade(element, animationTime) {
+    element.classList.remove("fadeShow");
+    element.classList.add("fadeOut");
+
+    // TODO: prefer to add event listener
+    setTimeout(() => {
+        element.classList.remove("fadeOut");
+        element.classList.add("fadeShow");
+        element.innerText = "";
+    }, animationTime);
+}
+
+function saveCircuit(event) {
+    event.preventDefault();
+
+    let formData = Object.fromEntries(new FormData(document.getElementById("circuitSaveForm")));
+    formData.username = currentUsername;
+    formData.sessionID = currentSessionToken;
+    formData.circuitData = {"circuits": circuits, "inputNodes": inputNodes, "outputNodes": outputNodes};
+
+    fetch(`${WEBSITE_URL}/saveCircuit`,
+        {
+            method: "POST",
+            headers: HEADERS,
+            body: JSON.stringify(formData)
+        }
+    ).then(async response => {
+        let text = await response.text();
+        let isError = response.status != 200;
+        let responseElement = document.getElementById("responseText");
+        responseElement.innerText = isError ? `Error ${response.status}: ${text}` : `${text}`;
+        responseElement.style.color = isError ? "red" : "black";
+
+        addFade(responseElement, 3000);
+    });
+}
+
+function getCircuits(event) {
+    fetch(`${WEBSITE_URL}/getCircuits?username=${currentUsername}&sessionID=${currentSessionToken}`,
+        {
+            method: "GET",
+            headers: HEADERS
+        }
+    ).then(async response => {
+        let text = await response.text();
+        
+        let responseElement = document.getElementById("responseText");
+        let isError = response.status != 200;
+        responseElement.innerText = isError ? `Error ${response.status}: ${text}` : "Got circuits successfully";
+        responseElement.style.color = isError ? "red" : "black";
+
+        addFade(responseElement, 3000);
+
+        if (!isError) {
+            let jsonData = JSON.parse(text);
+
+            // Clear all existing circuits
+            let paletteDiv = document.getElementById("paletteDiv");
+
+            // https://stackoverflow.com/questions/3955229/remove-all-child-elements-of-a-dom-node-in-javascript
+            paletteDiv.replaceChildren();
+
+            // Add back in all circuits (dumb solution because I'm not bothered to add only unique circuits)
+            addInitialPaletteButtons();
+
+            for (circuitName in jsonData) {
+                let circuitData = jsonData[circuitName];
+                
+                importCircuit(circuitName, circuitData);
+            }
+        }
+    });
+}
+
+function compareConfirmPassword() {
+    if (document.getElementById("confirmPasswordInput").value != document.getElementById("registerPasswordInput").value)
+        document.getElementById("registerResponse").innerText = "Passwords don't match!";
+    else
+    document.getElementById("registerResponse").innerText = "";
 }
 
 const SCALE_MINIMUM = 0.1;
@@ -306,7 +315,7 @@ const SELECTION_STRUCTURE = {
 const LONG_PRESS_MINIMUM_ELAPSED = 0.2;
 const DOUBLE_TAP_MAXIMUM_ELAPSED = 0.3;
 
-const DRAG_DISTANCE_MINIMUM = 0.05;
+const DRAG_DISTANCE_MINIMUM = 0.005;
 const DRAG_ELAPSED_MINIMUM = 0;
 
 let mouseX = 0;
@@ -546,6 +555,7 @@ function spawnOutputNode(y) {
 
     let newID = generateID(outputNodes);
 
+    // TODO: should only have 1 link
     outputNodes[newID] = {
         "state": false,
         "links": [],
@@ -614,10 +624,34 @@ function addLink(inputCircuitID, inputIndex, outputCircuitID, outputIndex) {
     circuitChanged = true;
 }
 
+function addPaletteButton(name, operation) {
+    let newPaletteButton = document.createElement("button");
+    newPaletteButton.setAttribute("id", "paletteButton");
+    newPaletteButton.setAttribute("class", "paletteButton");
+    
+    let paletteButtonName = document.createTextNode(name);
+    newPaletteButton.appendChild(paletteButtonName);
+    newPaletteButton.addEventListener("click", operation);
+
+    document.getElementById("paletteDiv").appendChild(newPaletteButton);
+}
+
+function importCircuit(name, circuitData) {
+    // TODO: load input/output labels
+    // https://stackoverflow.com/questions/1345939/how-do-i-count-a-javascript-objects-attributes
+    let inputCount = Object.keys(circuitData.inputNodes).length;
+    let outputCount = Object.keys(circuitData.outputNodes).length;
+
+    inputLabels = new Array(inputCount).fill("");
+    outputLabels = new Array(outputCount).fill("");
+
+    addPaletteButton(name, () => {
+        spawnCircuit(GATE_TYPE_RECURSIVE, inputLabels, outputLabels, circuitData, name);
+    });
+}
+
 function clearOutputNode(outputNodeID) {
     outputNodes[outputNodeID].links = [];
-
-    circuitChanged = true;
 }
 
 function isSameSelection(a, b) {
@@ -722,10 +756,9 @@ function tapAction(x, y) {
 }
 
 function deleteCircuit(circuitID) {
-    // State before
     let circuit = circuits[circuitID];
 
-    // Look for all links and delete them
+    // Look for all links to input
     for (let inputIndex = 0; inputIndex < circuit.inputLabels.length; inputIndex++) {
         clearLink(circuitID, inputIndex);
     }
@@ -745,18 +778,25 @@ function deleteCircuit(circuitID) {
         }
     }
 
-    // Delete the circuit
+    // Delete the circuit (also clears all outward links)
     delete circuits[circuitID];
 
     circuitChanged = true;
 }
 
+function deleteNode(nodeID, isInput) {
+    // TODO: clear its links first before outright deleting it
+
+    delete (isInput ? inputNodes : outputNodes)[nodeID];
+
+    circuitChanged = true;
+}
+
 // Also activated by right click on PC
-// TODO: on PC, a long press action should not be invoked if the position of the object changed significantly
 function longPressAction(x, y) {
     let currentSelection = getSelected(x, y);
 
-    console.log("Long press!");
+    // TODO: somehow get some name input box    
 }
 
 function doubleTapAction(x, y) {
@@ -768,6 +808,10 @@ function doubleTapAction(x, y) {
         if (previousSelection.circuitID == currentSelection.circuitID && currentSelection.linkIndex == null) {
             deleteCircuit(currentSelection.circuitID);
         }
+    }
+    // If they double tapped on a node
+    else if (currentSelection.nodeID != null) {
+        deleteNode(currentSelection.nodeID, currentSelection.isInput);
     }
 }
 
@@ -916,45 +960,33 @@ function generateID(object) {
 }
 
 function addInitialPaletteButtons() {
-    document.querySelectorAll("#paletteButton").forEach((button) => {
-        let onclickFunction;
-        let circuitType = parseInt(button.dataset.circuittype);
+    addPaletteButton("AND", () => {
+        let inputs = new Array(2);
+        inputs[0] = "A";
+        inputs[1] = "B";
+        let outputs = new Array(1);
+        outputs[0] = "C";
 
-        switch (circuitType) {
-            case GATE_TYPE_AND: onclickFunction = () => {
-                let inputs = new Array(2);
-                inputs[0] = "A";
-                inputs[1] = "B";
-                let outputs = new Array(1);
-                outputs[0] = "C";
+        spawnCircuit(GATE_TYPE_AND, inputs, outputs, null, "AND");
+    });
 
-                spawnCircuit(GATE_TYPE_AND, inputs, outputs, null, "AND");
-            }; break;
-            case GATE_TYPE_OR: onclickFunction = () => {
-                let inputs = new Array(2);
-                inputs[0] = "A";
-                inputs[1] = "B";
-                let outputs = new Array(1);
-                outputs[0] = "C";
+    addPaletteButton("OR", () => {
+        let inputs = new Array(2);
+        inputs[0] = "A";
+        inputs[1] = "B";
+        let outputs = new Array(1);
+        outputs[0] = "C";
 
-                spawnCircuit(GATE_TYPE_OR, inputs, outputs, null, "OR");
-            }; break;
-            case GATE_TYPE_NOT: onclickFunction = () => {
-                let inputs = new Array(1);
-                inputs[0] = "A";
-                let outputs = new Array(1);
-                outputs[0] = "B";
+        spawnCircuit(GATE_TYPE_OR, inputs, outputs, null, "OR");
+    });
 
-                spawnCircuit(GATE_TYPE_NOT, inputs, outputs, null, "NOT");
-            }; break;
-            default:
-                console.log("Couldn't populate palette buttons");
-                break;
-        }
+    addPaletteButton("NOT", () => {
+        let inputs = new Array(1);
+        inputs[0] = "A";
+        let outputs = new Array(1);
+        outputs[0] = "B";
 
-        if (onclickFunction != undefined) {
-            button.addEventListener("click", onclickFunction);
-        }
+        spawnCircuit(GATE_TYPE_NOT, inputs, outputs, null, "NOT");
     });
 }
 
@@ -989,6 +1021,8 @@ function spawnCircuit(type, inputLabels, outputLabels, representation, name) {
         "position": [0.5, 0.5],
         "inputLabels": inputLabels,
         "outputLabels": outputLabels,
+        "inputValues": new Array(inputLabels.length).fill(0),
+        "outputValues": new Array(outputLabels.length).fill(0),
         "links": [],
         "type": type,
         "representation": representation
@@ -1014,97 +1048,38 @@ function changeScaleSliderValue() {
 let canvas;
 let ctx;
 
-document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("circuitButton").addEventListener("click", getCircuitButtonClick);
-    document.getElementById("saveCircuitButton").addEventListener("click", saveCircuitButtonClick);
-    document.getElementById("circuitScaleInput").addEventListener("input", changeScaleSliderValue);
+function simulationTick() {
+    simulateDirect(circuits, inputNodes, outputNodes);
+}
 
-    document.getElementById("circuitScaleInput").value = ((1.0 - SCALE_MINIMUM) / (SCALE_MAXIMUM - SCALE_MINIMUM)) * 100;
+function update() {
+    // Fit to container div
+    // https://stackoverflow.com/questions/10214873/make-canvas-as-wide-and-as-high-as-parent#:~:text=If%20you%20want%20the%20canvas,display%20size%20of%20the%20canvas.
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
 
-    addInitialPaletteButtons();
+    ctx.font = `${CIRCUIT_TEXT_SCALE * scale}vw Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = 'middle';
 
-    canvas = document.getElementById("canvas");
-    ctx = canvas.getContext("2d");
+    let canvasBorderDiv = document.getElementById("canvasBorder");
+    let rect = canvasBorderDiv.getBoundingClientRect();
 
-    canvas.addEventListener("mousedown", computerMouseDown);
-    canvas.addEventListener("mouseup", computerMouseUp);
-    canvas.addEventListener("mousemove", computerMouseMove);
-    canvas.addEventListener("touchstart", mobileTouchStart);
-    canvas.addEventListener("touchend", mobileTouchEnd);
-    canvas.addEventListener("touchmove", mobileTouchMove);
+    canvasWidth = canvasBorderDiv.offsetWidth;
+    canvasHeight = canvasBorderDiv.offsetHeight;
+    canvasRect = rect;
 
-    function simulateCircuit() {
-        if (circuitChanged || currentLogicalRepresenation == null) {
-            // Convert circuit to logical representation
-            currentLogicalRepresenation = convertToLogicalRepresentation(circuits, inputNodes, outputNodes);
+    draw();
+}
 
-            circuitChanged = false;
-        }
-        
-        // Read state of input nodes and write into representation's state
-        let inputNodeIndex = 0;
-
-        for (let inputNodeID in inputNodes) {
-            let inputNodeValue = inputNodes[inputNodeID].state;
-            let inputSlot = currentLogicalRepresenation.inputSlots[inputNodeIndex];
-            
-            globalState.setValue(inputSlot, inputNodeValue);
-
-            inputNodeIndex++;
-        }
-
-        // Simulate circuit
-        currentLogicalRepresenation.operation(currentLogicalRepresenation);
-
-        // Read values of state to output nodes
-        let outputNodeIndex = 0;
-
-        for (let outputNodeID in outputNodes) {
-            let outputSlot = currentLogicalRepresenation.outputSlots[outputNodeIndex];
-            let outputSlotValue = globalState.getValue(outputSlot);
-
-            outputNodes[outputNodeID].state = outputSlotValue;
-
-            outputNodeIndex++;
-        }
-    }
-
-    function simulationTick() {
-        simulateCircuit();
-    }
-
-    function update() {
-        // Fit to container div
-        // https://stackoverflow.com/questions/10214873/make-canvas-as-wide-and-as-high-as-parent#:~:text=If%20you%20want%20the%20canvas,display%20size%20of%20the%20canvas.
-        canvas.style.width = "100%";
-        canvas.style.height = "100%";
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
-
-        ctx.font = `${CIRCUIT_TEXT_SCALE * scale}vw Arial`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = 'middle';
-
-        let canvasBorderDiv = document.getElementById("canvasBorder");
-        let rect = canvasBorderDiv.getBoundingClientRect();
-
-        canvasWidth = canvasBorderDiv.offsetWidth;
-        canvasHeight = canvasBorderDiv.offsetHeight;
-        canvasRect = rect;
-
-        draw();
-    }
-
-    function draw() {
-        clearScreen();
-        drawWiresToCursor();
-        drawCircuits(circuits);
-        drawNodes(inputNodes, outputNodes);
-    }
-
-    window.setInterval(update, FPS_RATE);
-    window.setInterval(simulationTick, SIMULATION_RATE);
-});
+function draw() {
+    clearScreen();
+    drawWiresToCursor();
+    drawCircuits(circuits);
+    drawNodes(inputNodes, outputNodes);
+}
 
 function drawLinkNode(x, y, linked) {
     ctx.beginPath();
@@ -1232,3 +1207,32 @@ function drawCircuits(circuits) {
         drawCircuit(circuits[id]);
     }
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("confirmPasswordInput").addEventListener("input", compareConfirmPassword);
+    document.getElementById("registerPasswordInput").addEventListener("input", compareConfirmPassword);
+
+    document.getElementById("circuitScaleInput").addEventListener("input", changeScaleSliderValue);
+    document.getElementById("circuitScaleInput").value = ((1.0 - SCALE_MINIMUM) / (SCALE_MAXIMUM - SCALE_MINIMUM)) * 100;
+
+    document.getElementById("loginForm").addEventListener("submit", login);
+    document.getElementById("createAccountForm").addEventListener("submit", register);
+    document.getElementById("circuitSaveForm").addEventListener("submit", saveCircuit);
+
+    document.getElementById("circuitGetButton").addEventListener("click", getCircuits);
+
+    addInitialPaletteButtons();
+
+    canvas = document.getElementById("canvas");
+    ctx = canvas.getContext("2d");
+
+    canvas.addEventListener("mousedown",    computerMouseDown);
+    canvas.addEventListener("mouseup",      computerMouseUp);
+    canvas.addEventListener("mousemove",    computerMouseMove);
+    canvas.addEventListener("touchstart",   mobileTouchStart);
+    canvas.addEventListener("touchend",     mobileTouchEnd);
+    canvas.addEventListener("touchmove",    mobileTouchMove);
+
+    window.setInterval(update, FPS_RATE);
+    window.setInterval(simulationTick, SIMULATION_RATE);
+});

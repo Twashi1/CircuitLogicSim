@@ -2,7 +2,56 @@ html {
     font-family: Arial;
 }
 
+.hidden {
+    display: none;
+}
+
+.authenticateDiv {
+    text-align: center;
+    padding: 0.5vw;
+}
+
+.authenticateDivChild {
+    display: inline-block;
+    padding: 0.5vw;
+}
+
+.centeredDiv {
+    text-align: center;
+}
+
+.centeredDivChild {
+    display: inline-block;
+    position: relative;
+}
+
+.feedbackResponse {
+    color: red;
+}
+
+/* https://stackoverflow.com/questions/15907079/css3-transition-fade-out-effect */
+/* https://help.fliplet.com/animation-fade-in-out/#:~:text=To%20fade%20an%20element%20we,out%20to%20be%20fully%20transparent. */
+/* https://stackoverflow.com/questions/29017379/how-to-make-fadeout-effect-with-pure-javascript */
+/* https://stackoverflow.com/questions/74114504/how-to-make-text-fade-out-and-new-text-fade-in-on-change */
+/* Last one is eventually what I used */
+.fadeOut {
+    transition: all 2s ease;
+    transition-delay: 1s;
+    opacity: 0;
+    visibility: visible;
+}
+
+.fadeShow {
+    visibility: visible;
+    opacity: 1;
+    transition: all 0.1s ease;
+}
+
 .paletteButton {
+}
+
+.listItemUnmarked {
+    list-style-type: none;
 }
 
 .buttonsList {
@@ -13,7 +62,7 @@ html {
     list-style-type: none;
 }
 
-#circuitScaleValue {
+.inlineParagraphDataValue {
     display: inline;
 }
 
