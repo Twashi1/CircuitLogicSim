@@ -49,7 +49,7 @@ function generateSessionID(userData) {
 function isValidText(text) {
     if (text == null) return false;
 
-    return text.match(/^[a-zA-Z0-9_]+$/);
+    return text.match(/^[a-zA-Z0-9_\-]+$/);
 }
 
 // Minimum of 8 characters long

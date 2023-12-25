@@ -1,15 +1,13 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
-// TODO: move input/output nodes
-// TODO: right click/long press functionality
-// TODO: add labels to gate links and nodes
-// TODO: should use some sort of map type instead of treating an object as a map
-// TODO: use bootstrap
-
-// TODO: deleting a circuit doesn't update the state of the output node
+// TODO: disable right click context menu on canvas
 // TODO: ordering of nodes not preserved
+// TODO: display labels
 // TODO: color of link should reflect its state
 // TODO: instead of inputValues and outputValues, links could store state (would require backwards links, or smart system for propogation)
+// TODO: some sort of system to "lock in" to an action, so other events are disabled when performing a drag, click, etc.
+// TODO: use bootstrap
+// TODO: should use some sort of map type instead of treating an object as a map
 
 function simulateDirect(circuits, inputNodes, outputNodes) {
     // Circuit could contain "representation" component -> an internal circuit to be simulated
@@ -566,7 +564,8 @@ function spawnInputNode(y) {
     inputNodes[newID] = {
         "state": false,
         "links": [],
-        "position": y
+        "position": y,
+        "name": "None"
     };
 }
 
@@ -579,7 +578,8 @@ function spawnOutputNode(y) {
     outputNodes[newID] = {
         "state": false,
         "links": [],
-        "position": y
+        "position": y,
+        "name": "None"
     };
 }
 
@@ -695,8 +695,15 @@ function dragAction(x, y) {
         let circuitHalfHeight = getCircuitHeight(circuit) / 2;
 
         if (x - circuitHalfWidth >= getNodeRegionWidth() && x + circuitHalfWidth <= (1 - getNodeRegionWidth()) && y - circuitHalfHeight >= 0 && y + circuitHalfHeight <= 1) {
-            circuit.position = [x, y];   
+            circuit.position = [x, y];
         }
+    }
+    // If a node is selected
+    else if (currentSelection.nodeID != null && previousSelection.nodeID == currentSelection.nodeID) {
+        let nodeMap = currentSelection.isInput ? inputNodes : outputNodes;
+        let node = nodeMap[currentSelection.nodeID];
+
+        node.position = y;
     }
 }
 
@@ -814,12 +821,35 @@ function deleteNode(nodeID, isInput) {
 }
 
 // Also activated by right click on PC
-function longPressAction(x, y) {
-    let currentSelection = getSelected(x, y);
+let longPressSelection = null;
 
-    showRenameOverlay();
-    // TODO: get selected structure and set the old element name
-    // TODO: store the current selection in some separate structure
+function longPressAction(x, y) {
+    longPressSelection = getSelected(x, y);
+
+    let isCircuit = longPressSelection.circuitID != null && longPressSelection.linkIndex == null;
+    let isLink = longPressSelection.circuitID != null && longPressSelection.linkIndex != null;
+    let isNode = longPressSelection.nodeID != null;
+
+    if (isCircuit || isLink || isNode) {
+        let renameOverlayText = document.getElementById("renameOldElementName");
+        let elementDescriptor;
+
+        if (isCircuit || isLink) {
+            let circuit = circuits[longPressSelection.circuitID];
+
+            if (isLink) {
+                elementDescriptor = `Link: ${(longPressSelection.isInput ? circuit.inputLabels : circuit.outputLabels)[longPressSelection.linkIndex]}`;
+            } else {
+                elementDescriptor = `Circuit: ${circuit.name}`;
+            }
+        } else {
+            elementDescriptor = `Node: ${(longPressSelection.isInput ? inputNodes[longPressSelection.nodeID] : outputNodes[longPressSelection.nodeID]).name}`;
+        }
+
+        renameOverlayText.innerText = elementDescriptor;
+        
+        showRenameOverlay();
+    }
 }
 
 function doubleTapAction(x, y) {
@@ -875,6 +905,7 @@ function invokeAppropriateAction(x, y) {
     let currentTimestamp = new Date();
     let touchTimeElapsed = (currentTimestamp - tapBeginTimestamp) / 1000;
     let timeSinceLastTap = null;
+    longPressSelection = null;
 
     if (lastTapTimestamp != null)
         timeSinceLastTap = (currentTimestamp - lastTapTimestamp) / 1000;
@@ -1245,16 +1276,52 @@ function cancelRename() {
     hideRenameOverlay();
 }
 
+// TODO: same as app.js, some shared thing would be nice
+function isValidText(text) {
+    if (text == null) return false;
+
+    return text.match(/^[a-zA-Z0-9_\-]+$/);
+}
+
 function confirmRename() {
     let newName = document.getElementById("renameInputBox").value;
 
-    if (newName == null || newName.length == 0) {
-        // TODO: use response text to send appropriate response
+    hideRenameOverlay();
+
+    if (!isValidText(newName)) {
+        let responseElement = document.getElementById("responseText"); 
+
+        responseElement.innerText = "Invalid name for component, must be alphanumeric";
+        responseElement.style.color = "red";
+        addFade(responseElement);
+
+        return;
     }
 
-    // TOOD: poll current selection if it was a label, get the appropriate circuit and rename that field
-    // TODO: if it was a circuit, rename the circuit itself
-    // TOOD: if it was a node, rename the node
+    let isCircuit = longPressSelection.circuitID != null && longPressSelection.linkIndex == null;
+    let isLink = longPressSelection.circuitID != null && longPressSelection.linkIndex != null;
+    let isNode = longPressSelection.nodeID != null;
+
+    if (isCircuit || isLink) {
+        let circuit = circuits[longPressSelection.circuitID];
+
+        if (isLink) {
+            (longPressSelection.isInput ? circuit.inputLabels : circuit.outputLabels)[longPressSelection.linkIndex] = newName;
+        } else {
+            circuit.name = newName;
+        }
+    } else if (isNode) {
+        (longPressSelection.isInput ? inputNodes[longPressSelection.nodeID] : outputNodes[longPressSelection.nodeID]).name = newName;
+    }
+
+    document.getElementsById("renameInputBox").value = "";
+}
+
+function disableContextMenu(event) {
+    event.preventDefault();
+
+    let cursorCoordinates = scaleCoordinates(event.clientX, event.clientY);
+    longPressAction(cursorCoordinates[0], cursorCoordinates[1]);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1274,6 +1341,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("renameCancelButton").addEventListener("click", cancelRename);
     document.getElementById("renameConfirmButton").addEventListener("click", confirmRename);
+
+    document.getElementById("canvas").addEventListener("contextmenu", disableContextMenu);
 
     document.querySelectorAll(".fadeable").forEach((element) => element.addEventListener("transitionend", () => {
         element.classList.remove("fadeOut");
