@@ -792,6 +792,7 @@ function deleteCircuit(circuitID) {
 
             if (link.circuit == circuitID) {
                 outputNode.links = [];
+                outputNode.state = false;
 
                 break;
             }
