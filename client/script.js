@@ -3,20 +3,14 @@
 // TODO: move input/output nodes
 // TODO: right click/long press functionality
 // TODO: add labels to gate links
-// TODO: recursive circuits
 // TODO: should use some sort of map type instead of treating an object as a map
 // TODO: use bootstrap
 // TODO: log out button
 
-// TODO: seems like only the first child gate is imported correctly?
-// TODO: maybe some issue like we had before with chaining circuits, state not being stored properly, or maybe same state is being overwritten?
 // TODO: deleting a circuit doesn't update the state of the output node
-
-/*
-given circuits, input nodes, output nodes
-to have proper ordering, signals have to propogate through circuit, necessitating linked structure
-
-*/
+// TODO: ordering of nodes not preserved
+// TODO: color of link should reflect its state
+// TODO: instead of inputValues and outputValues, links could store state (would require backwards links, or smart system for propogation)
 
 function simulateDirect(circuits, inputNodes, outputNodes) {
     // Circuit could contain "representation" component -> an internal circuit
@@ -113,6 +107,7 @@ const FPS_RATE = 1000 / FPS;
 const SIMULATION_TICKS_PER_SECOND = 20;
 const SIMULATION_RATE = 1000 / SIMULATION_TICKS_PER_SECOND;
 
+// TODO: Grabbing from a style sheet maybe is more appropriate?
 const BACKGROUND_COLOR = "#cccccc";
 const NODE_REGION_COLOR = "#aaaaaa";
 
@@ -136,6 +131,7 @@ let circuits = {};
 // "links": just like circuit links
 
 let inputNodes = {};
+// TODO: output nodes should only have one link or zero
 let outputNodes = {};
 
 let currentUsername = null;
@@ -218,16 +214,9 @@ function register(event) {
     });
 }
 
-function addFade(element, animationTime) {
+function addFade(element) {
     element.classList.remove("fadeShow");
     element.classList.add("fadeOut");
-
-    // TODO: prefer to add event listener
-    setTimeout(() => {
-        element.classList.remove("fadeOut");
-        element.classList.add("fadeShow");
-        element.innerText = "";
-    }, animationTime);
 }
 
 function saveCircuit(event) {
@@ -237,6 +226,8 @@ function saveCircuit(event) {
     formData.username = currentUsername;
     formData.sessionID = currentSessionToken;
     formData.circuitData = {"circuits": circuits, "inputNodes": inputNodes, "outputNodes": outputNodes};
+
+    importCircuit(formData.circuitName, JSON.parse(JSON.stringify(formData.circuitData)));
 
     fetch(`${WEBSITE_URL}/saveCircuit`,
         {
@@ -251,7 +242,7 @@ function saveCircuit(event) {
         responseElement.innerText = isError ? `Error ${response.status}: ${text}` : `${text}`;
         responseElement.style.color = isError ? "red" : "black";
 
-        addFade(responseElement, 3000);
+        addFade(responseElement);
     });
 }
 
@@ -269,7 +260,7 @@ function getCircuits(event) {
         responseElement.innerText = isError ? `Error ${response.status}: ${text}` : "Got circuits successfully";
         responseElement.style.color = isError ? "red" : "black";
 
-        addFade(responseElement, 3000);
+        addFade(responseElement);
 
         if (!isError) {
             let jsonData = JSON.parse(text);
@@ -1220,6 +1211,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("circuitSaveForm").addEventListener("submit", saveCircuit);
 
     document.getElementById("circuitGetButton").addEventListener("click", getCircuits);
+
+    document.querySelectorAll(".fadeable").forEach((element) => element.addEventListener("transitionend", () => {
+        element.classList.remove("fadeOut");
+        element.classList.add("fadeShow");
+        element.innerText = "";
+    }));
 
     addInitialPaletteButtons();
 

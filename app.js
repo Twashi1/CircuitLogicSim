@@ -39,8 +39,6 @@ function generateSessionID(userData) {
     // Generate 64 cryptographically secure random bytes as a session ID
     let sessionID = crypto.randomBytes(SESSION_TOKEN_LENGTH).toString("hex");
 
-    // TODO: should remember this session ID, and if someone tries to connect using it, give them an appropriate error message
-
     userData.sessionID = sessionID;
     userData.sessionStart = new Date();
 
@@ -61,17 +59,27 @@ function isValidPassword(text) {
     return text.match(/^.{8,}/);
 }
 
+const SESSION_INVALID = 0;
+const SESSION_EXPIRED = 1;
+const SESSION_VALID = 2;
+
 // Returns if a session ID is valid for a given user
+// TODO: could be good idea to pass in a function to be callbacked upon valid session
 function validateSession(userID, sessionID, resp) {
     let database = readDatabase();
 
     // TODO: validate session expiry
-    if (userID in database)
-        return database[userID].sessionID == sessionID;
+    if (userID in database) {
+        let userData = database[userID];
 
-    return false;
+        if (new Date() - userData.sessionStart > SESSION_EXPIRY_TIME) return SESSION_EXPIRED;
+        if (userData.sessionID == sessionID) return SESSION_VALID;
+    }
+
+    return SESSION_INVALID;
 }
 
+// TODO: rename with _MESSAGE suffix
 const USERNAME_ALPHANUMERIC = "Username must be alphanumeric";
 const USERNAME_TAKEN = "Username is already taken";
 
@@ -82,6 +90,7 @@ const PASSWORD_TOO_SHORT = "Password is too short, must be 8 characters or longe
 const PASSWORD_HASH_NO_MATCH = "Username or password is incorrect";
 const INVALID_SESSION = "Session is invalid";
 const NOT_LOGGED_IN = "Not logged in";
+const SESSION_EXPIRED_MESSAGE = "Session has expired";
 
 app.post("/createAccount", (req, resp) => {
     let username = req.body.username;
@@ -157,10 +166,12 @@ app.get("/getCircuits", (req, resp) => {
     if (username == null || sessionID == null) return resp.status(403).send(NOT_LOGGED_IN);
     if (!isValidText(username)) return resp.status(401).send(USERNAME_ALPHANUMERIC);
 
-    if (validateSession(username, sessionID)) {
-        return resp.status(200).send(fs.readFileSync(`secrets/circuits/${username}.json`));
-    } else {
-        return resp.status(403).send(INVALID_SESSION);
+    let sessionStatus = validateSession(username, sessionID);
+
+    switch (sessionStatus) {
+        case SESSION_EXPIRED: return resp.status(403).send(SESSION_EXPIRED_MESSAGE);
+        case SESSION_INVALID: return resp.status(403).send(INVALID_SESSION);
+        case SESSION_VALID:   return resp.status(200).send(fs.readFileSync(`secrets/circuits/${username}.json`));
     }
 });
 
@@ -171,7 +182,13 @@ app.post("/saveCircuit", (req, resp) => {
     let circuitData = req.body.circuitData;
 
     if (username == null || sessionID == null) return resp.status(403).send(NOT_LOGGED_IN);
-    if (!validateSession(username, sessionID)) return resp.status(403).send(INVALID_SESSION);
+    let sessionStatus = validateSession(username, sessionID);
+
+    switch (sessionStatus) {
+        case SESSION_EXPIRED: return resp.status(403).send(SESSION_EXPIRED_MESSAGE);
+        case SESSION_INVALID: return resp.status(403).send(INVALID_SESSION);
+    }
+
     if (!isValidText(username)) return resp.status(401).send(USERNAME_ALPHANUMERIC);
 
     let circuitFilePath = `secrets/circuits/${username}.json`;
@@ -200,4 +217,4 @@ const PORT = 8090;
 
 app.listen(PORT, () => {
     console.log(`Started on port ${PORT}`)
-})
+});
