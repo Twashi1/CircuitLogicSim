@@ -2,10 +2,9 @@
 
 // TODO: move input/output nodes
 // TODO: right click/long press functionality
-// TODO: add labels to gate links
+// TODO: add labels to gate links and nodes
 // TODO: should use some sort of map type instead of treating an object as a map
 // TODO: use bootstrap
-// TODO: log out button
 
 // TODO: deleting a circuit doesn't update the state of the output node
 // TODO: ordering of nodes not preserved
@@ -13,8 +12,12 @@
 // TODO: instead of inputValues and outputValues, links could store state (would require backwards links, or smart system for propogation)
 
 function simulateDirect(circuits, inputNodes, outputNodes) {
-    // Circuit could contain "representation" component -> an internal circuit
-    // Circuit contains a "type" value -> the operation to be performed
+    // Circuit could contain "representation" component -> an internal circuit to be simulated
+    // Circuit contains a "type" value -> the operation to be performed (AND, OR, NOT)
+
+    // We have multiple root nodes (each input node), so we have to collect a set to begin BFS on
+    let rootCircuitIDs = [];
+
     for (nodeID in inputNodes) {
         let inputNode = inputNodes[nodeID];
 
@@ -26,11 +29,15 @@ function simulateDirect(circuits, inputNodes, outputNodes) {
             let nextCircuit = circuits[link.circuit];
             // Set the input value
             nextCircuit.inputValues[link.output] = inputNode.state;
-            // Propogate the signal
-            // TODO: need BFS to have proper ordering
-            propogateSignal(circuits, nextCircuit);
+            
+            // Collect that circuit as a root node (without duplicates)
+            if (!rootCircuitIDs.includes(link.circuit))
+                rootCircuitIDs.push(link.circuit);
         }
     }
+
+    // Perform a BFS, propogating signals
+    breadthFirstSearchCircuitID(circuits, rootCircuitIDs);
 
     for (nodeID in outputNodes) {
         let outputNode = outputNodes[nodeID];
@@ -45,35 +52,54 @@ function simulateDirect(circuits, inputNodes, outputNodes) {
     }
 }
 
-function propogateSignal(circuits, circuit) {
-    if (circuit.representation == null) {
-        // Perform operation upon its current state
-        let operation = GATE_TYPE[circuit.type];
+function breadthFirstSearchCircuitID(circuits, rootCircuitIDs) {
+    let toSearchCircuitIDs = rootCircuitIDs;
+    let exploredCircuitIDs = [];
 
-        operation(circuit);
-    } else {
-        // TODO: doesn't preserve ordering
-        let index = 0;
+    while (toSearchCircuitIDs.length > 0) {
+        let currentCircuitID = toSearchCircuitIDs.shift();
+        let circuit = circuits[currentCircuitID];
 
-        for (nodeID in circuit.representation.inputNodes) {
-            circuit.representation.inputNodes[nodeID].state = circuit.inputValues[index++];
+        // Perform operation on node (propogate the signal)
+        if (circuit.representation == null) {
+            // Perform gate operation upon circuit
+            GATE_TYPE[circuit.type](circuit);
+        } else {
+            // This is a higher-order circuit, simulate it
+            // TODO: doesn't preserve ordering
+            let index = 0;
+
+            // Load values from circuit input values into input nodes of inner circuit
+            for (nodeID in circuit.representation.inputNodes) {
+                circuit.representation.inputNodes[nodeID].state = circuit.inputValues[index++];
+            }
+
+            // Simulate the inner circuit
+            simulateDirect(circuit.representation.circuits, circuit.representation.inputNodes, circuit.representation.outputNodes);
+        
+            // Load values from output nodes of inner circuit into output values of circuit
+            index = 0;
+
+            for (nodeID in circuit.representation.outputNodes) {
+                circuit.outputValues[index++] = circuit.representation.outputNodes[nodeID].state;
+            }
         }
 
-        simulateDirect(circuit.representation.circuits, circuit.representation.inputNodes, circuit.representation.outputNodes);
+        // Look at links to find next nodes to search
+        if (!exploredCircuitIDs.includes(currentCircuitID)) {
+            exploredCircuitIDs.push(currentCircuitID);
 
-        index = 0;
-        for (nodeID in circuit.representation.outputNodes) {
-            circuit.outputValues[index++] = circuit.representation.outputNodes[nodeID].state;
+            for (linkIndex in circuit.links) {
+                let link = circuit.links[linkIndex];
+
+                // Copy our (relevant) output value to the circuit's input value
+                let nextCircuit = circuits[link.circuit];
+                nextCircuit.inputValues[link.output] = circuit.outputValues[link.input];
+
+                // Add it to circuits to search
+                toSearchCircuitIDs.push(link.circuit);
+            }
         }
-    }
-
-    for (linkIndex in circuit.links) {
-        let link = circuit.links[linkIndex];
-
-        let nextCircuit = circuits[link.circuit];
-        nextCircuit.inputValues[link.output] = circuit.outputValues[link.input];
-
-        propogateSignal(circuits, nextCircuit);
     }
 }
 
@@ -154,6 +180,8 @@ function switchToLoggedOff() {
 
     document.querySelectorAll(".authenticateDiv").forEach(div => div.classList.remove("hidden"));
     document.getElementById("loggedInDiv").classList.add("hidden");
+
+    document.querySelectorAll(".formInputBox").forEach(element => element.value = "");
 }
 
 const HEADERS = {
@@ -227,8 +255,6 @@ function saveCircuit(event) {
     formData.sessionID = currentSessionToken;
     formData.circuitData = {"circuits": circuits, "inputNodes": inputNodes, "outputNodes": outputNodes};
 
-    importCircuit(formData.circuitName, JSON.parse(JSON.stringify(formData.circuitData)));
-
     fetch(`${WEBSITE_URL}/saveCircuit`,
         {
             method: "POST",
@@ -241,6 +267,9 @@ function saveCircuit(event) {
         let responseElement = document.getElementById("responseText");
         responseElement.innerText = isError ? `Error ${response.status}: ${text}` : `${text}`;
         responseElement.style.color = isError ? "red" : "black";
+
+        if (!isError)
+            importCircuit(formData.circuitName, JSON.parse(JSON.stringify(formData.circuitData)));
 
         addFade(responseElement);
     });
@@ -787,7 +816,9 @@ function deleteNode(nodeID, isInput) {
 function longPressAction(x, y) {
     let currentSelection = getSelected(x, y);
 
-    // TODO: somehow get some name input box    
+    showRenameOverlay();
+    // TODO: get selected structure and set the old element name
+    // TODO: store the current selection in some separate structure
 }
 
 function doubleTapAction(x, y) {
@@ -1199,6 +1230,32 @@ function drawCircuits(circuits) {
     }
 }
 
+function showRenameOverlay() {
+    document.querySelectorAll(".renameOverlay").forEach((element) => element.classList.add("renameOverlayShow"));
+}
+
+function hideRenameOverlay() {
+    document.querySelectorAll(".renameOverlay").forEach((element) => element.classList.remove("renameOverlayShow"));
+}
+
+function cancelRename() {
+    // TODO: might not clear properly, might clear placeholder value as well
+    document.getElementById("renameInputBox").value = "";
+    hideRenameOverlay();
+}
+
+function confirmRename() {
+    let newName = document.getElementById("renameInputBox").value;
+
+    if (newName == null || newName.length == 0) {
+        // TODO: use response text to send appropriate response
+    }
+
+    // TOOD: poll current selection if it was a label, get the appropriate circuit and rename that field
+    // TODO: if it was a circuit, rename the circuit itself
+    // TOOD: if it was a node, rename the node
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("confirmPasswordInput").addEventListener("input", compareConfirmPassword);
     document.getElementById("registerPasswordInput").addEventListener("input", compareConfirmPassword);
@@ -1211,6 +1268,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("circuitSaveForm").addEventListener("submit", saveCircuit);
 
     document.getElementById("circuitGetButton").addEventListener("click", getCircuits);
+
+    document.getElementById("logOutButton").addEventListener("click", switchToLoggedOff);
+
+    document.getElementById("renameCancelButton").addEventListener("click", cancelRename);
+    document.getElementById("renameConfirmButton").addEventListener("click", confirmRename);
 
     document.querySelectorAll(".fadeable").forEach((element) => element.addEventListener("transitionend", () => {
         element.classList.remove("fadeOut");

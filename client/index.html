@@ -35,8 +35,8 @@
 		<div class="loginDiv authenticateDivChild">
 			<form id="loginForm" action="" method="POST">
 				<ul class="listItemUnmarked">
-					<li><input name="username" type="text" placeholder="Username"></li>
-					<li><input name="password" type="password" placeholder="Password"></li>
+					<li><input class="formInputBox" name="username" type="text" placeholder="Username"></li>
+					<li><input class="formInputBox" name="password" type="password" placeholder="Password"></li>
 					<li><input type="submit" value="Log in"></li>
 					<li><p class="feedbackResponse" id="loginResponse"></p></li>
 				</ul>
@@ -45,9 +45,9 @@
 		<div class="createAccountDiv authenticateDivChild">
 			<form id="createAccountForm" action="" method="POST">
 				<ul class="listItemUnmarked">
-					<li><input name="username" type="text" placeholder="Username"></li>
-					<li><input name="password" type="password" placeholder="Password" id="registerPasswordInput"></li>
-					<li><input name="confirmPassword" type="password" placeholder="Confirm password" id="confirmPasswordInput"></li>
+					<li><input class="formInputBox" name="username" type="text" placeholder="Username"></li>
+					<li><input class="formInputBox" name="password" type="password" placeholder="Password" id="registerPasswordInput"></li>
+					<li><input class="formInputBox" name="confirmPassword" type="password" placeholder="Confirm password" id="confirmPasswordInput"></li>
 					<li><input type="submit" value="Register"></li>
 					<li><p class="feedbackResponse" id="registerResponse"></p></li>
 				</ul>
@@ -56,6 +56,9 @@
 	</div>
 	<div id="loggedInDiv" class="hidden">
 		Logged in as: <p class="inlineParagraphDataValue" id="loggedInUsername"></p>
+		<div>
+			<button id="logOutButton">Log out</button>
+		</div>
 	</div>
 	<hr>
 	<div class="centeredDiv">
@@ -76,7 +79,15 @@
 		</div>
 	</div>
 	<div class="canvasContainerDiv">
-		<div class="circuitAreaDiv">
+		<div class="circuitAreaDiv overlayContainer">
+			<div id="renameOverlay" class="renameOverlay">
+				<p id="renameOldElementName">Element</p>
+				<input id="renameInputBox" type="text" placeholder="Element name" maxlength=16>
+				<div>
+					<button id="renameCancelButton">Cancel</button>
+					<button id="renameConfirmButton">Confirm</button>
+				</div>
+			</div>
 			<div class="canvasBorder" id="canvasBorder">
 				<canvas id="canvas">Browser doesn't support canvas</canvas>
 			</div>

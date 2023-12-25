@@ -1,3 +1,5 @@
+/* TODO: all this CSS is complete mess */
+
 html {
     font-family: Arial;
 }
@@ -27,6 +29,24 @@ html {
 
 .feedbackResponse {
     color: red;
+}
+
+.overlayContainer {
+    position: relative;
+    display: flex;
+    justify-content: center;
+}
+
+.renameOverlay {
+    visibility: hidden;
+    position: absolute;
+    align-self: center;
+    z-index: 10;
+    display: block;
+}
+
+.renameOverlayShow {
+    visibility: visible;
 }
 
 /* https://stackoverflow.com/questions/15907079/css3-transition-fade-out-effect */
@@ -73,8 +93,10 @@ html {
 }
 
 .circuitAreaDiv {
-    display: inline-block;
+    display: flex;
     position: relative;
+    justify-content: center;
+    align-items: center;
 }
 
 .paletteDiv {
