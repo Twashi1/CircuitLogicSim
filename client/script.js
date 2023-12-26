@@ -1,5 +1,6 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
+// TODO: options slider for tickrate
 // TODO: ordering of nodes not preserved
 //      TODO: input nodes and output nodes should just be an array
 //      TODO: we then sort this array based on y position
