@@ -1,8 +1,8 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
-// TODO: disable right click context menu on canvas
 // TODO: ordering of nodes not preserved
-// TODO: display labels
+//      TODO: input nodes and output nodes should just be an array
+//      TODO: we then sort this array based on y position
 // TODO: color of link should reflect its state
 // TODO: instead of inputValues and outputValues, links could store state (would require backwards links, or smart system for propogation)
 // TODO: some sort of system to "lock in" to an action, so other events are disabled when performing a drag, click, etc.
@@ -135,6 +135,10 @@ const SIMULATION_RATE = 1000 / SIMULATION_TICKS_PER_SECOND;
 const BACKGROUND_COLOR = "#cccccc";
 const NODE_REGION_COLOR = "#aaaaaa";
 
+const LABEL_TEXT_COLOR = "#111111";
+const LABEL_BACKGROUND_COLOR = "#666666";
+const DRAW_LABEL_BOXES = false;
+
 const CIRCUIT_INACTIVE_LINK_COLOR = "#444444";
 const CIRCUIT_ACTIVE_LINK_COLOR = "#888888";
 const CIRCUIT_LINK_BORDER_COLOR = "#222222";
@@ -154,6 +158,7 @@ let circuits = {};
 // "position": y coordinate
 // "links": just like circuit links
 
+// TODO: should nodes really have IDs?
 let inputNodes = {};
 // TODO: output nodes should only have one link or zero
 let outputNodes = {};
@@ -345,6 +350,7 @@ let tapBeginTimestamp = null;
 let lastTapTimestamp = null;
 
 let previousSelection = Object.assign({}, SELECTION_STRUCTURE);
+let hoveredSelection = Object.assign({}, SELECTION_STRUCTURE);
 
 let canvasWidth = 0;
 let canvasHeight = 0;
@@ -356,6 +362,10 @@ const NODE_SIZE = 0.02;
 const NODE_BORDER_WIDTH = 0.1;
 const NODE_RADIUS = (NODE_SIZE + NODE_SIZE * NODE_BORDER_WIDTH) / 2;
 const NODE_PADDING = 0.01;
+
+const CIRCUIT_LABEL_WIDTH = 0.008;
+const CIRCUIT_LABEL_HEIGHT = 0.03;
+const CIRCUIT_LABEL_PADDING = 0.01;
 
 const LINK_SIZE = 0.01;
 const LINK_BORDER_WIDTH = 0.2;
@@ -544,8 +554,10 @@ function addOutputNodeLink(nodeID, circuitID, linkIndex) {
     circuitChanged = true;
 }
 
-function checkOverlappingNode(y, nodes) {
+function checkOverlappingNodePosition(y, nodes, myNodeID = null) {
     for (let nodeID in nodes) {
+        if (nodeID == myNodeID && myNodeID != null) continue;
+
         let node = nodes[nodeID];
 
         if (Math.abs(node.position - y) <= (NODE_RADIUS * 2 + NODE_PADDING) * scale) {
@@ -557,7 +569,7 @@ function checkOverlappingNode(y, nodes) {
 }
 
 function spawnInputNode(y) {
-    if (checkOverlappingNode(y, inputNodes)) return;
+    if (checkOverlappingNodePosition(y, inputNodes)) return;
 
     let newID = generateID(inputNodes);
 
@@ -570,7 +582,7 @@ function spawnInputNode(y) {
 }
 
 function spawnOutputNode(y) {
-    if (checkOverlappingNode(y, outputNodes)) return;
+    if (checkOverlappingNodePosition(y, outputNodes)) return;
 
     let newID = generateID(outputNodes);
 
@@ -665,6 +677,22 @@ function importCircuit(name, circuitData) {
     inputLabels = new Array(inputCount).fill("");
     outputLabels = new Array(outputCount).fill("");
 
+    let index = 0;
+
+    for (nodeID in circuitData.inputNodes) {
+        let node = circuitData.inputNodes[nodeID];
+
+        inputLabels[index++] = node.name;
+    }
+
+    index = 0;
+
+    for (nodeID in circuitData.outputNodes) {
+        let node = circuitData.outputNodes[nodeID];
+
+        outputLabels[index++] = node.name;
+    }
+
     addPaletteButton(name, () => {
         spawnCircuit(GATE_TYPE_RECURSIVE, inputLabels, outputLabels, circuitData, name);
     });
@@ -687,6 +715,7 @@ function distance(x0, y0, x1, y1) {
 
 function dragAction(x, y) {
     let currentSelection = getSelected(x, y);
+    hoveredSelection = currentSelection;
 
     // If a circuit is selected (not a link of the circuit), and previous selection was also a circuit (preventing us from moving circuit when we're making links), move to cursor position
     if (currentSelection.circuitID != null && currentSelection.linkIndex == null && previousSelection.linkIndex == null && previousSelection.circuitID == currentSelection.circuitID) {
@@ -703,7 +732,10 @@ function dragAction(x, y) {
         let nodeMap = currentSelection.isInput ? inputNodes : outputNodes;
         let node = nodeMap[currentSelection.nodeID];
 
-        node.position = y;
+        if (!checkOverlappingNodePosition(y, nodeMap, currentSelection.nodeID))
+        {
+            node.position = y;
+        }
     }
 }
 
@@ -1114,10 +1146,6 @@ function update() {
     canvas.width = canvas.offsetWidth;
     canvas.height = canvas.offsetHeight;
 
-    ctx.font = `${CIRCUIT_TEXT_SCALE * scale}vw Arial`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = 'middle';
-
     let canvasBorderDiv = document.getElementById("canvasBorder");
     let rect = canvasBorderDiv.getBoundingClientRect();
 
@@ -1172,7 +1200,47 @@ function clearScreen() {
     ctx.fillRect((1 - getNodeRegionWidth()) * canvasWidth, 0, canvasWidth, canvasHeight);
 }
 
-function drawCircuit(circuit) {
+function drawCircuitLabel(x, y, text, isInput) {
+    let labelWidth = CIRCUIT_LABEL_WIDTH * scale * text.length;
+    let labelHeight = CIRCUIT_LABEL_HEIGHT * scale;
+    let xPadding = CIRCUIT_LABEL_PADDING * scale;
+
+    let xPosition = isInput ? (x - labelWidth - xPadding) : (x + xPadding);
+    let yPosition = y;
+
+    ctx.fillStyle = LABEL_BACKGROUND_COLOR;
+    if (DRAW_LABEL_BOXES)
+        ctx.fillRect(xPosition * canvasWidth, yPosition * canvasHeight, labelWidth * canvasWidth, labelHeight * canvasHeight);
+
+    ctx.font = `${LABEL_TEXT_SCALE * scale}vw Arial`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "center";
+
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.fillText(text, xPosition * canvasWidth, yPosition * canvasHeight);
+}
+
+function drawNodeLabel(position, nodeText, isInput) {
+    let labelWidth = CIRCUIT_LABEL_WIDTH * nodeText.length;
+    let labelHeight = CIRCUIT_LABEL_HEIGHT;
+    let xPadding = (CIRCUIT_LABEL_PADDING + NODE_RADIUS * 2);
+
+    let xPosition = isInput ? (position[0] + xPadding * scale) : (position[0] - (labelWidth + xPadding) * scale);
+    let yPosition = position[1] + NODE_RADIUS * scale;
+
+    ctx.fillStyle = LABEL_BACKGROUND_COLOR;
+    if (DRAW_LABEL_BOXES)
+        ctx.fillRect(xPosition * canvasWidth, yPosition * canvasHeight, labelWidth * canvasWidth * scale, labelHeight * canvasHeight * scale);
+
+    ctx.font = `${LABEL_TEXT_SCALE * scale}vw Arial`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "bottom";
+
+    ctx.fillStyle = LABEL_TEXT_COLOR;
+    ctx.fillText(nodeText, xPosition * canvasWidth, yPosition * canvasHeight);
+}
+
+function drawCircuit(circuit, isHovered) {
     let x = circuit.position[0];
     let y = circuit.position[1];
 
@@ -1203,6 +1271,11 @@ function drawCircuit(circuit) {
     ctx.fillRect(left * canvasWidth, bottom * canvasHeight, width * canvasWidth, height * canvasHeight);
 
     ctx.fillStyle = multiplyColor(circuit.color, 0.5);
+
+    ctx.font = `${CIRCUIT_TEXT_SCALE * scale}vw Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
     ctx.fillText(circuit.name, x * canvasWidth, y * canvasHeight);
 
     // TODO: read whether or not a node is linked, and change color
@@ -1211,12 +1284,16 @@ function drawCircuit(circuit) {
         let pos = inputPositions[i];
         
         drawLinkNode(pos[0], pos[1], false);
+
+        if (isHovered) drawCircuitLabel(pos[0], pos[1], circuit.inputLabels[i], true);
     }
 
     for (let i = 0; i < outputPositions.length; i++) {
         let pos = outputPositions[i];
 
         drawLinkNode(pos[0], pos[1], false);
+
+        if (isHovered) drawCircuitLabel(pos[0], pos[1], circuit.outputLabels[i], false);
     }
 }
 
@@ -1227,6 +1304,7 @@ function drawNodes(inputNodes, outputNodes) {
         let position = [getNodeX(true), node.position];
 
         drawIONode(position[0], position[1], node.state);
+        if (nodeID == hoveredSelection.nodeID && hoveredSelection.isInput) drawNodeLabel(position, node.name, true);
 
         for (let linkIndex in node.links) {
             let link = node.links[linkIndex];
@@ -1244,6 +1322,7 @@ function drawNodes(inputNodes, outputNodes) {
         let position = [getNodeX(false), node.position];
 
         drawIONode(position[0], position[1], node.state);
+        if (nodeID == hoveredSelection.nodeID && !hoveredSelection.isInput) drawNodeLabel(position, node.name, false);
 
         for (let linkIndex in node.links) {
             let link = node.links[linkIndex];
@@ -1258,7 +1337,7 @@ function drawNodes(inputNodes, outputNodes) {
 
 function drawCircuits(circuits) {
     for (let id in circuits) {
-        drawCircuit(circuits[id]);
+        drawCircuit(circuits[id], id == hoveredSelection.circuitID);
     }
 }
 
@@ -1314,7 +1393,7 @@ function confirmRename() {
         (longPressSelection.isInput ? inputNodes[longPressSelection.nodeID] : outputNodes[longPressSelection.nodeID]).name = newName;
     }
 
-    document.getElementsById("renameInputBox").value = "";
+    document.getElementById("renameInputBox").value = "";
 }
 
 function disableContextMenu(event) {
