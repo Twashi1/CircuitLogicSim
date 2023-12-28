@@ -19,10 +19,12 @@ app.use(express.urlencoded());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
+// Read our user database
 function readDatabase() {
     return JSON.parse(fs.readFileSync("secrets/database.json"));
 }
 
+// Write to our user database
 function writeDatabase(database) {
     fs.writeFileSync("secrets/database.json", JSON.stringify(database));
 }
@@ -34,96 +36,111 @@ const SESSION_EXPIRY_TIME = 6 * HOURS;
 const SESSION_TOKEN_LENGTH = 64;
 
 // I have no idea if this is how you're meant to do things, I'm just guessing
-function generateSessionID(userData) {
+// Creates a new session token
+function createNewSessionToken() {
     // https://stackoverflow.com/questions/8855687/secure-random-token-in-node-js
     // Generate 64 cryptographically secure random bytes as a session ID
-    let sessionID = crypto.randomBytes(SESSION_TOKEN_LENGTH).toString("hex");
-
-    userData.sessionID = sessionID;
-    userData.sessionStart = new Date();
-
-    return sessionID;
+    return crypto.randomBytes(SESSION_TOKEN_LENGTH).toString("hex");
 }
 
-// Is alphanumeric (+ some special characters), some length
+// Check a piece of text is alphanumeric (+ some special characters), non-zero size
 function isValidText(text) {
     if (text == null) return false;
 
-    return text.match(/^[a-zA-Z0-9_\-]+$/);
+    return text.match(/^[a-zA-Z0-9_\-\w]+$/);
 }
 
-// Minimum of 8 characters long
+// Check a password is longer than 8 characters
 function isValidPassword(text) {
     if (text == null) return false;
 
     return text.match(/^.{8,}/);
 }
 
-const SESSION_INVALID = 0;
-const SESSION_EXPIRED = 1;
-const SESSION_VALID = 2;
-
-// Returns if a session ID is valid for a given user
-// TODO: could be good idea to pass in a function to be callbacked upon valid session
-function validateSession(userID, sessionID, resp) {
-    let database = readDatabase();
-
-    // TODO: validate session expiry
-    if (userID in database) {
-        let userData = database[userID];
-
-        if (new Date() - userData.sessionStart > SESSION_EXPIRY_TIME) return SESSION_EXPIRED;
-        if (userData.sessionID == sessionID) return SESSION_VALID;
-    }
-
-    return SESSION_INVALID;
+// Wrap a response text with a json object
+function responseJSON(errorMessage) {
+    return {"response": errorMessage};
 }
 
-// TODO: rename with _MESSAGE suffix
-const USERNAME_ALPHANUMERIC = "Username must be alphanumeric";
-const USERNAME_TAKEN = "Username is already taken";
+const USERNAME_ALPHANUMERIC_MESSAGE = "Username must be alphanumeric";
+const USERNAME_TAKEN_MESSAGE = "Username is already taken";
 
-const USER_DOESNT_EXIST = "User doesn't exist";
+const USER_DOESNT_EXIST_MESSAGE = "User doesn't exist";
 
-const CONFIRM_PASSWORD_NO_MATCH = "Password doesn't match confirmation password";
-const PASSWORD_TOO_SHORT = "Password is too short, must be 8 characters or longer";
-const PASSWORD_HASH_NO_MATCH = "Username or password is incorrect";
-const INVALID_SESSION = "Session is invalid";
-const NOT_LOGGED_IN = "Not logged in";
+const PASSWORD_TOO_SHORT_MESSAGE = "Password is too short, must be 8 characters or longer";
+const PASSWORD_HASH_NO_MATCH_MESSAGE = "Username or password is incorrect";
+const SESSION_INVALID_MESSAGE = "Session is invalid";
+const NOT_LOGGED_IN_MESSAGE = "Not logged in";
 const SESSION_EXPIRED_MESSAGE = "Session has expired";
+
+const USER_NO_SAVED_CIRCUITS_MESSAGE = "User had no saved circuits";
+const USER_NO_CIRCUIT_WITH_NAME_MESSAGE = "User had no circuit with the given name";
+
+const CIRCUIT_ALPHANUMERIC_MESSAGE = "Circuit name must be alphanumeric";
+const CIRCUIT_NAME_TAKEN_MESSAGE = "Circuit with same name already created";
+const CIRCUIT_SAVED_SUCESSFULLY_MESSAGE = "Saved circuit successfully";
+
+// Validate a session token for a given user
+function validateSession(username, sessionToken, resp, successCallback) {
+    let database = readDatabase();
+
+    if (username in database) {
+        let userData = database[username];
+
+        if (new Date() - userData.sessionStart > SESSION_EXPIRY_TIME) return resp.status(403).send(responseJSON(SESSION_EXPIRED_MESSAGE));
+        if (userData.sessionToken != sessionToken) return resp.status(403).send(responseJSON(SESSION_INVALID_MESSAGE));
+    }
+
+    return successCallback();
+}
+
+// Get the circuit file for a given user
+function getCircuitFile(username, resp, successCallback) {
+    let database = readDatabase();
+
+    if (!(username in database)) return resp.status(404).send(responseJSON(USER_DOESNT_EXIST_MESSAGE));
+    if (!isValidText(username)) return resp.status(401).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
+
+    let circuitPath = `secrets/circuits/${username}.json`;
+
+    if (!fs.existsSync(circuitPath)) return resp.status(404).send(responseJSON(USER_NO_SAVED_CIRCUITS_MESSAGE));
+
+    return successCallback(database, JSON.parse(fs.readFileSync(circuitPath)), circuitPath);
+}
 
 app.post("/createAccount", (req, resp) => {
     let username = req.body.username;
     let password = req.body.password;
 
     // First check username is alphanumeric
-    if (!isValidText(username)) return resp.status(401).send(USERNAME_ALPHANUMERIC);
+    if (!isValidText(username)) return resp.status(401).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
 
     let database = readDatabase();
 
     // Check username isn't taken already
     if (username in database) {
-        return resp.status(401).send(USERNAME_TAKEN);
+        return resp.status(401).send(responseJSON(USERNAME_TAKEN_MESSAGE));
     }
 
     // Check for a valid passsword    
-    if (!isValidPassword(password)) return resp.status(401).send(PASSWORD_TOO_SHORT);
-    // Check password and confirmation password match
-    if (req.body.password != req.body.confirmPassword) return resp.status(401).send(CONFIRM_PASSWORD_NO_MATCH);
+    if (!isValidPassword(password)) return resp.status(401).send(responseJSON(PASSWORD_TOO_SHORT_MESSAGE));
 
     // All checks passed!
     // Hash and store password
     let hashedPassword = bcrypt.hashSync(password, SALT_ROUNDS);
+    let sessionToken = createNewSessionToken();
 
     database[username] = {
         "password": hashedPassword,
-        "sessionID": null,
-        "sessionStart": new Date()
+        "sessionToken": sessionToken,
+        "sessionStart": new Date(),
+        "totalDownloads": 0
     };
 
     // Respond with session ID
-    resp.status(200).send(generateSessionID(database[username]));
+    resp.status(200).send({"sessionToken": sessionToken});
 
+    // Create empty circuit data file
     fs.writeFileSync(`secrets/circuits/${username}.json`, "{}");
 
     writeDatabase(database);
@@ -131,18 +148,18 @@ app.post("/createAccount", (req, resp) => {
 
 app.post("/login", (req, resp) => {
     let username = req.body.username;
-    // Please ignore the fact that this isn't a HTTPS server, and so we're basically just sending the password
-    // plaintext. I did try setting up some keys and even made a CSR, but I'd have to send that to a CA (I think?), and that seems like too much work.
+    // This isn't a HTTPS server, so we're just sending the password unencrypted, so while we may have safe password storage, we're
+    // vulnerable to man-in-the-middle attacks (I think?) with both passwords and session tokens
     let password = req.body.password;
 
-    if (!isValidText(username)) return resp.status(401).send(USERNAME_ALPHANUMERIC);
+    if (!isValidText(username)) return resp.status(401).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
 
     // Lookup username in our "database"
     let database = readDatabase();
     
     let userData = database[username];
 
-    if (userData == undefined) return resp.status(401).send(USER_DOESNT_EXIST);
+    if (userData == undefined) return resp.status(401).send(responseJSON(USER_DOESNT_EXIST_MESSAGE));
 
     let hashedPassword = userData.password;
 
@@ -150,71 +167,130 @@ app.post("/login", (req, resp) => {
     let result = bcrypt.compareSync(password, hashedPassword);
 
     if (result) {
-        // This isn't a HTTPS server, so these session IDs also are meaningless, they can just be stolen
-        resp.status(200).send(generateSessionID(userData));
-    } else {
-        return resp.status(403).send(PASSWORD_HASH_NO_MATCH);
+        let sessionToken = createNewSessionToken();
+
+        userData.sessionToken = sessionToken;
+        userData.sessionStart = new Date();
+        
+        resp.status(200).send({"sessionToken": sessionToken});
+    }
+    else {
+        return resp.status(403).send(responseJSON(PASSWORD_HASH_NO_MATCH_MESSAGE));
     }
 
     writeDatabase(database);
 });
 
+app.get("/getUsers", (req, resp) => {
+    let database = readDatabase();
+
+    let userData = [];
+
+    for (username in database) {
+        let entry = database[username];
+
+        userData.push({
+            "username": username,
+            "totalDownloads": entry.totalDownloads
+        });
+    }
+    
+    resp.status(200).send(userData);
+});
+
+app.get("/getUser", (req, resp) => {
+    let username = req.query.username;
+
+    return getCircuitFile(username, resp, (database, circuitFile, path) => {
+        let circuitNames = Object.keys(circuitFile);
+
+        if (circuitNames.length == 0)
+            return resp.status(404).send(responseJSON(USER_NO_SAVED_CIRCUITS_MESSAGE));
+
+        let circuitMetricData = [];
+    
+        for (circuitName in circuitFile) {
+            let entry = circuitFile[circuitName];
+
+            circuitMetricData.push({
+                "circuitName": circuitName,
+                "downloads": entry.downloads
+            });
+        }
+
+        return resp.status(200).send(circuitMetricData);
+    });
+});
+
 app.get("/getCircuits", (req, resp) => {
     let username = req.query.username;
-    let sessionID = req.query.sessionID;
 
-    if (username == null || sessionID == null) return resp.status(403).send(NOT_LOGGED_IN);
-    if (!isValidText(username)) return resp.status(401).send(USERNAME_ALPHANUMERIC);
+    return getCircuitFile(username, resp, (database, circuitFile, path) => {
+        let circuitNames = Object.keys(circuitFile);
 
-    let sessionStatus = validateSession(username, sessionID);
-
-    switch (sessionStatus) {
-        case SESSION_EXPIRED: return resp.status(403).send(SESSION_EXPIRED_MESSAGE);
-        case SESSION_INVALID: return resp.status(403).send(INVALID_SESSION);
-        case SESSION_VALID:   return resp.status(200).send(fs.readFileSync(`secrets/circuits/${username}.json`));
-    }
+        if (circuitNames.length == 0)
+            return resp.status(404).send(responseJSON(USER_NO_SAVED_CIRCUITS_MESSAGE));
+    
+        return resp.status(200).send({"circuitNames": circuitNames});
+    });
 });
+
+app.get("/getCircuit", (req, resp) => {
+    let username = req.query.username;
+    let circuitName = req.query.circuitName;
+
+    return getCircuitFile(username, resp, (database, circuitFile, path) => {
+        if (Object.keys(circuitFile).length == 0) return resp.status(404).send(responseJSON(USER_NO_SAVED_CIRCUITS_MESSAGE));
+        if (!(circuitName in circuitFile)) return resp.status(404).send(responseJSON(USER_NO_CIRCUIT_WITH_NAME_MESSAGE));
+
+        // Increment total download count
+        let database = readDatabase();
+        database[username].totalDownloads++;
+        writeDatabase(database);
+
+        // Increment download count for that circuit
+        circuitFile[circuitName].downloads++;
+        fs.writeFileSync(path, JSON.stringify(circuitFile));
+    
+        return resp.status(200).send({"name": circuitName, "data": circuitFile[circuitName]});
+    });
+})
 
 app.post("/saveCircuit", (req, resp) => {
     let username = req.body.username;
-    let sessionID = req.body.sessionID;
+    let sessionToken = req.body.sessionToken;
     let circuitName = req.body.circuitName;
     let circuitData = req.body.circuitData;
 
-    if (username == null || sessionID == null) return resp.status(403).send(NOT_LOGGED_IN);
-    let sessionStatus = validateSession(username, sessionID);
+    if (username == null || sessionToken == null) return resp.status(403).send(responseJSON(NOT_LOGGED_IN_MESSAGE));
+    if (!isValidText(circuitName)) return resp.status(401).send(responseJSON(CIRCUIT_ALPHANUMERIC_MESSAGE));
+    
+    // mini-callback hell
+    return validateSession(username, sessionToken, resp, () => {
+        if (!isValidText(username)) return resp.status(401).send(wrapJSON(USERNAME_ALPHANUMERIC_MESSAGE));
 
-    switch (sessionStatus) {
-        case SESSION_EXPIRED: return resp.status(403).send(SESSION_EXPIRED_MESSAGE);
-        case SESSION_INVALID: return resp.status(403).send(INVALID_SESSION);
-    }
+        return getCircuitFile(username, resp, (database, circuitFile, path) => {
+            if (circuitName in circuitFile) return resp.status(401).send(responseJSON(CIRCUIT_NAME_TAKEN_MESSAGE));
 
-    if (!isValidText(username)) return resp.status(401).send(USERNAME_ALPHANUMERIC);
+            circuitFile[circuitName] = {
+                "circuits": circuitData.circuits,
+                "inputNodes": circuitData.inputNodes,
+                "outputNodes": circuitData.outputNodes,
+                "downloads": 0
+            };
 
-    let circuitFilePath = `secrets/circuits/${username}.json`;
-    let userData;
+            fs.writeFileSync(path, JSON.stringify(circuitFile));
 
-    if (fs.existsSync(circuitFilePath))
-    {
-        userData = JSON.parse(fs.readFileSync(circuitFilePath));
-    }
-    else
-        userData = {};
-
-    if (!isValidText(circuitName)) return resp.status(401).send("Circuit must have alphanumeric name");
-
-    if (circuitName in userData)
-        return resp.status(401).send("Circuit with same name already created");
-
-    userData[circuitName] = circuitData;
-
-    fs.writeFileSync(circuitFilePath, JSON.stringify(userData));
-
-    return resp.status(200).send("Saved circuit successfully");
+            return resp.status(200).send(responseJSON(CIRCUIT_SAVED_SUCESSFULLY_MESSAGE));
+        });
+    });
 });
+
+// TODO: getUsers
+// TODO: getUser
 
 const PORT = 8090;
 
 app.listen(PORT, () => {
-    console.log(`Started on port ${PORT}`)
+    console.log(`Started at 127.0.0.1:${PORT}`)
 });

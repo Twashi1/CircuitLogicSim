@@ -27,7 +27,7 @@
 		<li>Left click a node, then and drag cursor to another node to make a connection</li>
 		<li>Left click a node to toggle state</li>
 		<li>Left click sidebar to add an input/output</li>
-		<li>Right click on a gate or input/output node to rename it</li>
+		<li>Right click on a gate, link, or input/output node to rename it</li>
 		<li>Double left click on a gate or node to delete connection(s)</li>
 	</ul>
 	<hr>
@@ -71,10 +71,14 @@
 				</ul>
 			</form>
 			<hr>
-			<ul class="listItemUnmarked">
-				<li><button id="circuitGetButton">Get saved circuits</button></li>
-				<li>Scale: <input type="range" id="circuitScaleInput" min="0" max="100" value="0" class="slider"><p id="circuitScaleValue" class="inlineParagraphDataValue">100%</p></li>
-			</ul>
+			<form id="circuitGetForm" action="" method="GET">
+				<ul class="listItemUnmarked">
+					<li><input name="username" type="text" placeholder="Username" maxlength=16></li>
+					<li><input type="submit" value="Get circuits"></li>
+				</ul>
+			</form>
+			<hr>
+			Scale: <input type="range" id="circuitScaleInput" min="0" max="100" value="0" class="slider"><p id="circuitScaleValue" class="inlineParagraphDataValue">100%</p>
 			<p id="responseText" class="fadeShow fadeable"></p>
 		</div>
 	</div>
@@ -98,5 +102,4 @@
 	
 	<script src="script.js"></script>
 </body> 
-
 </html> 

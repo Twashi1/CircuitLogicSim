@@ -1,5 +1,8 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
+// TODO: single feedback response (very messy rn)
+// TODO: getUser and getUsers client side implementation
+
 // TODO: options slider for tickrate
 // TODO: ordering of nodes not preserved
 //      TODO: input nodes and output nodes should just be an array
@@ -208,19 +211,20 @@ function login(event) {
             body: JSON.stringify(formData)
         }
     ).then(async response => {
-        let text = await response.text();
+        let json = await response.json();
 
         switch (response.status) {
             case 200:
-                switchToLoggedIn(formData.username, text);
+                switchToLoggedIn(formData.username, json.sessionToken);
                 break;
             default:
-                document.getElementById("loginResponse").innerText = `Error ${response.status}: ${text}`;
+                document.getElementById("loginResponse").innerText = `Error ${response.status}: ${json.response}`;
                 break;
         }
     });
 }
 
+// TODO: rename
 function register(event) {
     event.preventDefault();
 
@@ -233,14 +237,14 @@ function register(event) {
             body: JSON.stringify(formData)
         }
     ).then(async response => {
-        let text = await response.text();
+        let json = await response.json();
 
         switch (response.status) {
             case 200:
-                switchToLoggedIn(formData.username, text);
+                switchToLoggedIn(formData.username, json.sessionToken);
                 break;
             default:
-                document.getElementById("registerResponse").innerText = `Error ${response.status}: ${text}`;
+                document.getElementById("registerResponse").innerText = `Error ${response.status}: ${json.response}`;
                 break;
         }
     });
@@ -254,10 +258,13 @@ function addFade(element) {
 function saveCircuit(event) {
     event.preventDefault();
 
+    // Circuit name included from here
     let formData = Object.fromEntries(new FormData(document.getElementById("circuitSaveForm")));
     formData.username = currentUsername;
-    formData.sessionID = currentSessionToken;
+    formData.sessionToken = currentSessionToken;
     formData.circuitData = {"circuits": circuits, "inputNodes": inputNodes, "outputNodes": outputNodes};
+
+    let circuitName = formData.circuitName;
 
     fetch(`${WEBSITE_URL}/saveCircuit`,
         {
@@ -266,38 +273,43 @@ function saveCircuit(event) {
             body: JSON.stringify(formData)
         }
     ).then(async response => {
-        let text = await response.text();
+        let json = await response.json();
+        
         let isError = response.status != 200;
         let responseElement = document.getElementById("responseText");
-        responseElement.innerText = isError ? `Error ${response.status}: ${text}` : `${text}`;
+        responseElement.innerText = isError ? `Error ${response.status}: ${json.response}` : `${json.response}`;
         responseElement.style.color = isError ? "red" : "black";
 
+        // Load the circuit they saved as a palette button
         if (!isError)
-            importCircuit(formData.circuitName, JSON.parse(JSON.stringify(formData.circuitData)));
+            importCircuit(circuitName, JSON.parse(JSON.stringify(formData.circuitData)));
 
         addFade(responseElement);
     });
 }
 
 function getCircuits(event) {
-    fetch(`${WEBSITE_URL}/getCircuits?username=${currentUsername}&sessionID=${currentSessionToken}`,
+    event.preventDefault();
+
+    let formData = Object.fromEntries(new FormData(document.getElementById("circuitGetForm")));
+    let username = formData.username;
+
+    fetch(`${WEBSITE_URL}/getCircuits?username=${username}`,
         {
             method: "GET",
             headers: HEADERS
         }
     ).then(async response => {
-        let text = await response.text();
+        let json = await response.json();
         
         let responseElement = document.getElementById("responseText");
         let isError = response.status != 200;
-        responseElement.innerText = isError ? `Error ${response.status}: ${text}` : "Got circuits successfully";
+        responseElement.innerText = isError ? `Error ${response.status}: ${json.response}` : "Got circuits successfully";
         responseElement.style.color = isError ? "red" : "black";
 
         addFade(responseElement);
 
         if (!isError) {
-            let jsonData = JSON.parse(text);
-
             // Clear all existing circuits
             let paletteDiv = document.getElementById("paletteDiv");
 
@@ -307,10 +319,8 @@ function getCircuits(event) {
             // Add back in all circuits (dumb solution because I'm not bothered to add only unique circuits)
             addInitialPaletteButtons();
 
-            for (circuitName in jsonData) {
-                let circuitData = jsonData[circuitName];
-                
-                importCircuit(circuitName, circuitData);
+            for (circuitName of json.circuitNames) {
+                importDownloadCircuit(username, circuitName);
             }
         }
     });
@@ -669,8 +679,42 @@ function addPaletteButton(name, operation) {
     document.getElementById("paletteDiv").appendChild(newPaletteButton);
 }
 
-function importCircuit(name, circuitData) {
-    // TODO: load input/output labels
+function downloadCircuit(username, circuitName) {
+    return fetch(`${WEBSITE_URL}/getCircuit?username=${username}&circuitName=${circuitName}`,
+        {
+            method: "GET",
+            headers: HEADERS
+        }
+    ).then(async response => {
+        let json = await response.json();
+
+        let responseElement = document.getElementById("responseText");
+        let isError = response.status != 200;
+        responseElement.innerText = isError ? `Error ${response.status}: ${json.response}` : "Downloaded circuit successfully";
+        responseElement.style.color = isError ? "red" : "black";
+
+        addFade(responseElement);
+
+        if (!isError) {
+            return json.data;
+        } else {
+            return null;
+        }
+    });
+}
+
+function importDownloadCircuit(username, circuitName) {
+    addPaletteButton(circuitName, async () => {
+        let downloadedCircuit = await downloadCircuit(username, circuitName);
+
+        if (downloadedCircuit != null) {
+            importCircuit(circuitName, downloadedCircuit, false);
+        }
+    });
+}
+
+// TODO: rename "name" parameter to circuitName
+function importCircuit(name, circuitData, addButton = true) {
     // https://stackoverflow.com/questions/1345939/how-do-i-count-a-javascript-objects-attributes
     let inputCount = Object.keys(circuitData.inputNodes).length;
     let outputCount = Object.keys(circuitData.outputNodes).length;
@@ -694,9 +738,14 @@ function importCircuit(name, circuitData) {
         outputLabels[index++] = node.name;
     }
 
-    addPaletteButton(name, () => {
+    // TODO: horrific
+    if (addButton) {
+        addPaletteButton(name, () => {
+            spawnCircuit(GATE_TYPE_RECURSIVE, inputLabels, outputLabels, circuitData, name);
+        });
+    } else {
         spawnCircuit(GATE_TYPE_RECURSIVE, inputLabels, outputLabels, circuitData, name);
-    });
+    }
 }
 
 function clearOutputNode(outputNodeID) {
@@ -1414,8 +1463,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("loginForm").addEventListener("submit", login);
     document.getElementById("createAccountForm").addEventListener("submit", register);
     document.getElementById("circuitSaveForm").addEventListener("submit", saveCircuit);
-
-    document.getElementById("circuitGetButton").addEventListener("click", getCircuits);
+    document.getElementById("circuitGetForm").addEventListener("submit", getCircuits);
 
     document.getElementById("logOutButton").addEventListener("click", switchToLoggedOff);
 
