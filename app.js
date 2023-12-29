@@ -244,7 +244,6 @@ app.get("/getCircuit", (req, resp) => {
         if (!(circuitName in circuitFile)) return resp.status(404).send(responseJSON(USER_NO_CIRCUIT_WITH_NAME_MESSAGE));
 
         // Increment total download count
-        let database = readDatabase();
         database[username].totalDownloads++;
         writeDatabase(database);
 
@@ -285,9 +284,6 @@ app.post("/saveCircuit", (req, resp) => {
         });
     });
 });
-
-// TODO: getUsers
-// TODO: getUser
 
 const PORT = 8090;
 

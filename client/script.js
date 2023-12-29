@@ -2,6 +2,7 @@
 
 // TODO: single feedback response (very messy rn)
 // TODO: getUser and getUsers client side implementation
+// TODO: button to request specific circuit of specific user
 
 // TODO: options slider for tickrate
 // TODO: ordering of nodes not preserved
@@ -28,7 +29,7 @@ function simulateDirect(circuits, inputNodes, outputNodes) {
             let link = inputNode.links[linkIndex];
 
             // Get corresponding circuit
-            let nextCircuit = circuits[link.circuit];
+            let nextCircuit = circuits[link.circuit];   
             // Set the input value
             nextCircuit.inputValues[link.output] = inputNode.state;
             
@@ -157,11 +158,6 @@ const MAX_ID_GENERATION_LOOPS = 1_000;
 
 let circuits = {};
 
-// Each node consists of
-// "state": current value
-// "position": y coordinate
-// "links": just like circuit links
-
 // TODO: should nodes really have IDs?
 let inputNodes = {};
 // TODO: output nodes should only have one link or zero
@@ -170,7 +166,8 @@ let outputNodes = {};
 let currentUsername = null;
 let currentSessionToken = null;
 
-const WEBSITE_URL = "http://127.0.0.1:8090";
+const WEBSITE_PORT = 8090;
+const WEBSITE_URL = `http://127.0.0.1:${WEBSITE_PORT}`;
 
 function switchToLoggedIn(username, session) {
     currentUsername = username;
@@ -179,6 +176,7 @@ function switchToLoggedIn(username, session) {
     document.querySelectorAll(".authenticateDiv").forEach(div => div.classList.add("hidden"));
     document.getElementById("loggedInUsername").innerText = currentUsername;
     document.getElementById("loggedInDiv").classList.remove("hidden");
+    document.querySelectorAll(".feedbackResponse").forEach(element => element.innerText = "");
 }
 
 function switchToLoggedOff() {
@@ -1453,6 +1451,142 @@ function disableContextMenu(event) {
     longPressAction(cursorCoordinates[0], cursorCoordinates[1]);
 }
 
+const USERS_PER_PAGE = 5;
+let userPageIndex = 0;
+let maxPageIndex = 0;
+
+function getOrderedUserList() {
+    return fetch(`${WEBSITE_URL}/getUsers`,
+        {
+            method: "GET",
+            headers: HEADERS
+        }
+    ).then(async response => {
+        return response.json();
+    });
+}
+
+async function getUserRankings() {
+    let userList = await getOrderedUserList();
+
+    // Sort users by amount of total downloads (descending)
+    // https://stackoverflow.com/questions/8837454/sort-array-of-objects-by-single-key-with-date-value
+    userList.sort((a, b) => b.totalDownloads - a.totalDownloads);
+
+    let index = userPageIndex * USERS_PER_PAGE;
+    let userFound = false;
+
+    maxPageIndex = Math.floor(userList.length / USERS_PER_PAGE);
+
+    document.getElementById("orderedUserList").setAttribute("start", (index + 1).toString());
+    document.getElementById("pageNumber").innerText = `${userPageIndex + 1}/${maxPageIndex + 1}`;
+
+    document.querySelectorAll("#userListEntry").forEach((element) => {
+        let listIndex = element.getAttribute("data-listindex");
+        let elementIndex = index + parseInt(listIndex);
+
+        if (elementIndex < userList.length) {
+            element.parentElement.classList.remove("hidden");
+
+            let user = userList[elementIndex];
+
+            // Set the corresponding button to read this username
+            document.querySelectorAll("#seeUserCircuitButton").forEach((element) => {
+                if (element.getAttribute("data-listindex") == listIndex)
+                    element.setAttribute("data-username", user.username);
+            })
+
+            // TODO: pretty bad, should probably just use regular text and stuff
+            element.innerHTML = `<b>${user.username}</b> with <b>${user.totalDownloads}</b> downloads `;
+            userFound = true;
+        } else {
+            element.parentElement.classList.add("hidden");
+        }
+    });
+
+    if (!userFound) {
+        document.getElementById("noUsersDisplayText").classList.remove("hidden");
+    } else {
+        document.getElementById("noUsersDisplayText").classList.add("hidden");
+    }
+}
+
+function pageBackwardsUserList() {
+    if (userPageIndex > 0) --userPageIndex;
+
+    getUserRankings();
+}
+
+function pageForwardsUserList() {
+    if (userPageIndex < maxPageIndex) ++userPageIndex;
+
+    getUserRankings();
+}
+
+function getUserCircuitList(username) {
+    return fetch(`${WEBSITE_URL}/getUser?username=${username}`,
+        {
+            method: "GET",
+            headers: HEADERS
+        }
+    ).then(async response => {
+        let json = await response.json();
+
+        let responseElement = document.getElementById("responseText");
+        let isError = response.status != 200;
+        responseElement.innerText = isError ? `Error ${response.status}: ${json.response}` : "Got user successfully";
+        responseElement.style.color = isError ? "red" : "black";
+
+        addFade(responseElement);
+
+        if (!isError) {
+            return json;
+        } else {
+            return [];
+        }
+    });
+}
+
+let currentFurtherUserDetailsUsername = null;
+
+async function showFurtherUserDetails(username) {
+    currentFurtherUserDetailsUsername = username;
+
+    let circuitList = await getUserCircuitList(username);
+    circuitList.sort((a, b) => b.downloads - a.downloads);
+
+    // TODO: could probably display some error message inside the div
+    if (circuitList.length == 0)
+        return document.getElementById("userMoreDetailsDiv").classList.add("hidden");
+
+    document.getElementById("userMoreDetailsDiv").classList.remove("hidden");
+
+    document.getElementById("userMoreDetailsUsername").innerText = username;
+
+    let circuitElementList = document.getElementById("userMoreDetailsList");
+    circuitElementList.innerHTML = "";
+
+    for (circuitIndex in circuitList) {
+        let circuitMetrics = circuitList[circuitIndex];
+        
+        // Should do fancy html node stuff instead
+        // https://www.w3schools.com/jsref/met_node_appendchild.asp
+        circuitElementList.innerHTML += `<li><b>${circuitMetrics.circuitName}</b> with <b>${circuitMetrics.downloads}</b> downloads</li>`;
+    }
+}
+
+async function getFurtherUserDetails(event) {
+    let buttonElement = event.target;
+    let username = buttonElement.getAttribute("data-username");
+
+    showFurtherUserDetails(username);
+}
+
+function refreshUserList() {
+    getUserRankings();
+    showFurtherUserDetails(currentFurtherUserDetailsUsername);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("confirmPasswordInput").addEventListener("input", compareConfirmPassword);
     document.getElementById("registerPasswordInput").addEventListener("input", compareConfirmPassword);
@@ -1469,6 +1603,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("renameCancelButton").addEventListener("click", cancelRename);
     document.getElementById("renameConfirmButton").addEventListener("click", confirmRename);
+
+    document.getElementById("refreshUserListButton").addEventListener("click", refreshUserList);
+    document.getElementById("backwardUserListButton").addEventListener("click", pageBackwardsUserList);
+    document.getElementById("forwardUserListButton").addEventListener("click", pageForwardsUserList);
+    document.getElementById("hideMoreDetailsButton").addEventListener("click", (event) => document.getElementById("userMoreDetailsDiv").classList.add("hidden"));
+    document.querySelectorAll("#seeUserCircuitButton").forEach(element => element.addEventListener("click", getFurtherUserDetails));
+
+    // Initially get user rankings on page load
+    getUserRankings();
 
     document.getElementById("canvas").addEventListener("contextmenu", disableContextMenu);
 

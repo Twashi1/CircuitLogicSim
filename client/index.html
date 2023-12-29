@@ -12,25 +12,27 @@
 
 <body>
 	<h1>LogicSim</h1>
-	<h2>
-		Controls
-	</h2>
-	<ul>
-		<li><b>Left click</b> is same as a <b>tap</b> on mobile</li>
-		<li><b>Right click</b> is same as a <b>long press</b> on mobile</li>
-		<li><b>Double left click</b> is same as <b>double tap</b> on mobile</li>
-	</ul>
+	<div>
+		<h2>Controls</h2>
+		<ul>
+			<li><b>Left click</b> is same as a <b>tap</b> on mobile</li>
+			<li><b>Right click</b> is same as a <b>long press</b> on mobile</li>
+			<li><b>Double left click</b> is same as <b>double tap</b> on mobile</li>
+		</ul>
+		<hr>
+		<ul>
+			<li>Left click buttons to add logic gates</li>
+			<li>Left click circuit/node and move around with cursor</li>
+			<li>Left click a node, then and drag cursor to another node to make a connection</li>
+			<li>Left click a node to toggle state</li>
+			<li>Left click sidebar to add an input/output</li>
+			<li>Right click on a gate, link, or input/output node to rename it</li>
+			<li>Double left click on a gate or node to delete connection(s)</li>
+		</ul>
+	</div>
+
 	<hr>
-	<ul>
-		<li>Left click buttons to add logic gates</li>
-		<li>Left click circuit/node and move around with cursor</li>
-		<li>Left click a node, then and drag cursor to another node to make a connection</li>
-		<li>Left click a node to toggle state</li>
-		<li>Left click sidebar to add an input/output</li>
-		<li>Right click on a gate, link, or input/output node to rename it</li>
-		<li>Double left click on a gate or node to delete connection(s)</li>
-	</ul>
-	<hr>
+
 	<div class="authenticateDiv">
 		<div class="loginDiv authenticateDivChild">
 			<form id="loginForm" action="" method="POST">
@@ -60,7 +62,36 @@
 			<button id="logOutButton">Log out</button>
 		</div>
 	</div>
+
 	<hr>
+
+	<div id="usersDiv">
+		<h2>Top Users</h2>
+		<p id="noUsersDisplayText">No users found!</p>
+		<ol id="orderedUserList">
+			<li class="hidden"><p class="inlineParagraphDataValue" id="userListEntry" data-listindex="0">Can't connect to server... </p><button id="seeUserCircuitButton" data-username="" data-listindex="0">See circuits</button></li>
+			<li class="hidden"><p class="inlineParagraphDataValue" id="userListEntry" data-listindex="1">Can't connect to server... </p><button id="seeUserCircuitButton" data-username="" data-listindex="1">See circuits</button></li>
+			<li class="hidden"><p class="inlineParagraphDataValue" id="userListEntry" data-listindex="2">Can't connect to server... </p><button id="seeUserCircuitButton" data-username="" data-listindex="2">See circuits</button></li>
+			<li class="hidden"><p class="inlineParagraphDataValue" id="userListEntry" data-listindex="3">Can't connect to server... </p><button id="seeUserCircuitButton" data-username="" data-listindex="3">See circuits</button></li>
+			<li class="hidden"><p class="inlineParagraphDataValue" id="userListEntry" data-listindex="4">Can't connect to server... </p><button id="seeUserCircuitButton" data-username="" data-listindex="4">See circuits</button></li>
+		</ol>
+		<p class="inlineParagraphDataValue">Page </p><p class="inlineParagraphDataValue" id="pageNumber">1/10</p>
+		<div>
+			<button id="backwardUserListButton">Back page</button>
+			<button id="forwardUserListButton">Next page</button>
+			<button id="refreshUserListButton">Refresh</button>
+		</div>
+		<hr>
+		<div id="userMoreDetailsDiv" class="hidden">
+			<p class="inlineParagraphDataValue">User <b class="inlineParagraphDataValue" id="userMoreDetailsUsername"></b> has circuits: </p>
+			<ol id="userMoreDetailsList">
+			</ol>
+			<button id="hideMoreDetailsButton">Hide</button>
+		</div>
+	</div>
+
+	<hr>
+
 	<div class="centeredDiv">
 		<div class="centeredDivChild">
 			<form id="circuitSaveForm" action="" method="POST">
@@ -82,6 +113,7 @@
 			<p id="responseText" class="fadeShow fadeable"></p>
 		</div>
 	</div>
+
 	<div class="canvasContainerDiv">
 		<div class="circuitAreaDiv overlayContainer">
 			<div id="renameOverlay" class="renameOverlay">

@@ -67,9 +67,6 @@ html {
     transition: all 0.1s ease;
 }
 
-.paletteButton {
-}
-
 .listItemUnmarked {
     list-style-type: none;
 }
