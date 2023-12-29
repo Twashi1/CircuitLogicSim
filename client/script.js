@@ -1,10 +1,8 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
-// TODO: single feedback response (very messy rn)
-// TODO: getUser and getUsers client side implementation
+// TODO: single feedback response (very messy rn, also some bugs with colouring and fades - go pure js)
 // TODO: button to request specific circuit of specific user
 
-// TODO: options slider for tickrate
 // TODO: ordering of nodes not preserved
 //      TODO: input nodes and output nodes should just be an array
 //      TODO: we then sort this array based on y position
