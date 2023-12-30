@@ -1,27 +1,28 @@
-DOCS OUT OF DATE
-/getUsers should give a list of usernames with how many circuits (and total downloads?) each user has
-/getUser should give the list of circuit names with download count each for that given user
-
 # API reference index
 
 ## Circuits
-- GET /getCircuits
-- GET /getCircuit
-- POST /saveCircuit
+
+- [GET /getCircuit](#get-getcircuit)
+- [GET /getCircuits](#get-getcircuits)
+- [POST /saveCircuit](#post-savecircuit)
 
 ## Users
-- POST /login
-- POST /createAccount
-- GET /getUsers
-- GET /getUser
+
+- [GET /getUsers](#get-getusers)
+- [GET /getUser](#get-getuser)
+- [POST /login](#post-login)
+- [POST /createAccount](#post-createaccount)
 
 # API
 
 ## Circuits
-### GET /getCircuits
-Returns list of all circuits saved to the user's account
+
+### GET /getCircuit
+
+Get the circuit data for a specific circuit under a given username
 
 #### Resource Information
+
 <table>
     <tr>
         <th>Response formats</th>
@@ -29,13 +30,14 @@ Returns list of all circuits saved to the user's account
         <th>Rate limited?</th>
     </tr>
     <tr>
-        <td>STRING</td>
-        <td>Yes</td>
+        <td>JSON</td>
+        <td>No</td>
         <td>No</td>
     </tr>
 </table>
 
 #### Parameters
+
 <table>
     <tr>
         <th>Name</th>
@@ -52,25 +54,29 @@ Returns list of all circuits saved to the user's account
         <td>thomas</td>
     </tr>
     <tr>
-        <td>sessionID</td>
+        <td>circuitName</td>
         <td>required</td>
-        <td>Session token used to validate user is authenticated</td>
+        <td>The name of the circuit to look for under that user, alphanumeric</td>
         <td></td>
-        <td>64 digit hexadecimal string (too long)</td>
+        <td>NAND</td>
     </tr>
 </table>
 
 #### Example request
-Send the user to `/getCircuits` in a web browser, including the username and sessionID parameters:
-`127.0.0.1:8090/getCircuits?username=thomas&sessionID=(some 64 hex string)`
+
+Send the user to `/getCircuit` in a web browser, including the username of who you want to get the circuit from, and the name of the circuit you want to get:
+`127.0.0.1:8090/getCircuits?username=thomas&circuitName=NAND`
 
 #### Example response
-See `circuit_example_data.json`
 
-### POST /saveCircuit
-Saves a circuit to a certain account inside a JSON file, so it can be reused
+`{"name": NAND, "data": <circuit_example_data.json>}`
+
+### GET /getCircuits
+
+Returns list of names of all circuits saved to the given username
 
 #### Resource Information
+
 <table>
     <tr>
         <th>Response formats</th>
@@ -78,13 +84,61 @@ Saves a circuit to a certain account inside a JSON file, so it can be reused
         <th>Rate limited?</th>
     </tr>
     <tr>
-        <td>STRING</td>
+        <td>JSON</td>
+        <td>No</td>
+        <td>No</td>
+    </tr>
+</table>
+
+#### Parameters
+
+<table>
+    <tr>
+        <th>Name</th>
+        <th>Required</th>
+        <th>Description</th>
+        <th>Default value</th>
+        <th>Example</th>
+    </tr>
+    <tr>
+        <td>username</td>
+        <td>required</td>
+        <td>The username identifies which JSON file to get user circuit data from, alphanumeric</td>
+        <td></td>
+        <td>thomas</td>
+    </tr>
+</table>
+
+#### Example request
+
+Send the user to `/getCircuits` in a web browser, including the username of whose circuits you want to get the names of:
+`127.0.0.1:8090/getCircuits?username=thomas`
+
+#### Example response
+
+`{"circuitNames": ["NAND", "NOR", "SuperSpecialGate"]}`
+
+### POST /saveCircuit
+
+Saves a circuit to the account currently logged into
+
+#### Resource Information
+
+<table>
+    <tr>
+        <th>Response formats</th>
+        <th>Requires authentication?</th>
+        <th>Rate limited?</th>
+    </tr>
+    <tr>
+        <td>JSON</td>
         <td>Yes</td>
         <td>No</td>
     </tr>
 </table>
 
 #### Parameters
+
 <table>
     <tr>
         <th>Name</th>
@@ -101,40 +155,45 @@ Saves a circuit to a certain account inside a JSON file, so it can be reused
         <td>thomas</td>
     </tr>
     <tr>
-        <td>sessionID</td>
+        <td>sessionToken</td>
         <td>required</td>
         <td>Session token used to validate user is authenticated</td>
         <td></td>
-        <td>64 digit hexadecimal string (too long)</td>
+        <td>3c38504bb... (64 hex digits)</td>
     </tr>
     <tr>
         <td>circuitName</td>
         <td>required</td>
-        <td>The name under which the circuit data will be saved, alphanumeric</td>
+        <td>The name of the circuit, so it can be identified later, alphanumeric</td>
         <td></td>
         <td>MyXORGate</td>
     </tr>
     <tr>
         <td>circuitData</td>
         <td>required</td>
-        <td>JSON structure containing the input nodes, output nodes, and circuits that compose the circuit to save</td>
+        <td>Represenation of the circuit, containing the input nodes, output nodes, and circuits/gates that compose the circuit to save</td>
         <td></td>
-        <td>See <i>circuit_example_data.json</i> (too long)</td>
+        <td>See <code>circuit_example_data.json</code></td>
     </tr>
 </table>
 
 #### Example request
-Send the user to `/saveCircuit` in a web browser, including the username, sessionID, circuitName, and circuitData parameters:
-`127.0.0.1:8090/saveCircuit?username=thomas&sessionID=(some 64 hex string)&circuitName=MyXORGate&circuitData=(data from circuit_example_data.json)`
+
+Send the user to `/saveCircuit` in a web browser, including the username, sessionToken, circuitName, and circuitData parameters:
+`127.0.0.1:8090/saveCircuit?username=thomas&sessionToken=<64 hex digits>&circuitName=MyXORGate&circuitData=<data from circuit_example_data.json>`
 
 #### Example response
-"Circuit saved successfully"
+
+`{"response": "Saved circuit successfully"}`
 
 ## Users
-### POST /login
-Attempt login to an existing account, getting a session token to authenticate future actions if successful
+
+### GET /getUsers
+
+Get a list of usernames and their total circuit download count
 
 #### Resource Information
+
 <table>
     <tr>
         <th>Response formats</th>
@@ -142,13 +201,46 @@ Attempt login to an existing account, getting a session token to authenticate fu
         <th>Rate limited?</th>
     </tr>
     <tr>
-        <td>STRING</td>
+        <td>JSON</td>
         <td>No</td>
         <td>No</td>
     </tr>
 </table>
 
 #### Parameters
+
+No parameters
+
+#### Example request
+
+Send the user to `/getUsers` in a web browser:
+`127.0.0.1:8090/getUsers`
+
+#### Example response
+
+`[{"name": "thomas", "downloads": 3}, {"name": "thomas2", "downloads": 5}]`
+
+### GET /getUser
+
+Get a list of circuits and each circuits' download count for under a given username
+
+#### Resource Information
+
+<table>
+    <tr>
+        <th>Response formats</th>
+        <th>Requires authentication?</th>
+        <th>Rate limited?</th>
+    </tr>
+    <tr>
+        <td>JSON</td>
+        <td>No</td>
+        <td>No</td>
+    </tr>
+</table>
+
+#### Parameters
+
 <table>
     <tr>
         <th>Name</th>
@@ -160,30 +252,81 @@ Attempt login to an existing account, getting a session token to authenticate fu
     <tr>
         <td>username</td>
         <td>required</td>
-        <td>The username the account will be identified under, alphanumeric</td>
+        <td>The username of the account to get circuits from, alphanumeric</td>
+        <td></td>
+        <td>thomas</td>
+    </tr>
+</table>
+
+#### Example request
+
+Send the user to `/getUser` in a web browser, with the username of who you want to get the circuits from:
+`127.0.0.1:8090/getUser?username=thomas`
+
+#### Example response
+
+`[{"circuitName": "NAND", "downloads": 9}, {"circuitName": "XOR", "downloads": 2}]`
+
+### POST /login
+
+Attempt login to an existing account, getting a session token to authenticate future actions if successful
+
+#### Resource Information
+
+<table>
+    <tr>
+        <th>Response formats</th>
+        <th>Requires authentication?</th>
+        <th>Rate limited?</th>
+    </tr>
+    <tr>
+        <td>JSON</td>
+        <td>No</td>
+        <td>No</td>
+    </tr>
+</table>
+
+#### Parameters
+
+<table>
+    <tr>
+        <th>Name</th>
+        <th>Required</th>
+        <th>Description</th>
+        <th>Default value</th>
+        <th>Example</th>
+    </tr>
+    <tr>
+        <td>username</td>
+        <td>required</td>
+        <td>The username the account will be identified with, alphanumeric</td>
         <td></td>
         <td>thomas</td>
     </tr>
     <tr>
         <td>password</td>
         <td>required</td>
-        <td>Password to secure the account</td>
+        <td>8 character or longer password to secure the account</td>
         <td></td>
         <td>password123</td>
     </tr>
 </table>
 
 #### Example request
+
 Send the user to `/login` in a web browser, including the username, and password parameters:
 `127.0.0.1:8090/login?username=thomas&password=password123`
 
 #### Example response
-Some 64 digit hex string
+
+`{"sessionToken": "3ab3da46a..."}`
 
 ### POST /createAccount
+
 Create a new account
 
 #### Resource Information
+
 <table>
     <tr>
         <th>Response formats</th>
@@ -191,13 +334,14 @@ Create a new account
         <th>Rate limited?</th>
     </tr>
     <tr>
-        <td>STRING</td>
-        <td>Yes</td>
+        <td>JSON</td>
+        <td>No</td>
         <td>No</td>
     </tr>
 </table>
 
 #### Parameters
+
 <table>
     <tr>
         <th>Name</th>
@@ -223,8 +367,10 @@ Create a new account
 </table>
 
 #### Example request
+
 Send the user to `/createAccount` in a web browser, including the username, and password parameters:
 `127.0.0.1:8090/login?username=thomasNew&password=password123`
 
 #### Example response
-Some 64 digit hex string
+
+`{"sessionToken": "3ab3da46a..."}`
