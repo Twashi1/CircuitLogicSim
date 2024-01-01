@@ -1,6 +1,7 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
 // TODO: exception handling (throw random exceptions)
+// TODO: check content-type of everything
 
 // TODO: single feedback response (very messy rn, also some bugs with colouring and fades - go pure js)
 // TODO: button to request specific circuit of specific user

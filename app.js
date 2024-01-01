@@ -1,12 +1,9 @@
-// TODO: make distinction between username and user ID
 // TODO: avoid sync when possible
 
 const express = require("express");
 const bodyParser = require("body-parser");
-// https://blog.logrocket.com/password-hashing-node-js-bcrypt/
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const fs = require("fs");
-// https://stackoverflow.com/questions/8855687/secure-random-token-in-node-js
 const crypto = require("crypto");
 
 const SALT_ROUNDS = 10;
@@ -14,6 +11,7 @@ const SALT_ROUNDS = 10;
 const app = express();
 
 app.use(express.static("client"));
+app.use(express.json());
 app.use(express.urlencoded());
 // https://stackoverflow.com/questions/45032412/sending-data-from-javascript-html-page-to-express-nodejs-server
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -87,7 +85,7 @@ function validateSession(username, sessionToken, resp, successCallback) {
     if (username in database) {
         let userData = database[username];
 
-        if (new Date() - userData.sessionStart > SESSION_EXPIRY_TIME) return resp.status(403).send(responseJSON(SESSION_EXPIRED_MESSAGE));
+        if (new Date() - userData.sessionStart > SESSION_EXPIRY_TIME) return resp.status(400).send(responseJSON(SESSION_EXPIRED_MESSAGE));
         if (userData.sessionToken != sessionToken) return resp.status(403).send(responseJSON(SESSION_INVALID_MESSAGE));
     }
 
@@ -99,7 +97,7 @@ function getCircuitFile(username, resp, successCallback) {
     let database = readDatabase();
 
     if (!(username in database)) return resp.status(404).send(responseJSON(USER_DOESNT_EXIST_MESSAGE));
-    if (!isValidText(username)) return resp.status(401).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
+    if (!isValidText(username)) return resp.status(400).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
 
     let circuitPath = `secrets/circuits/${username}.json`;
 
@@ -108,22 +106,22 @@ function getCircuitFile(username, resp, successCallback) {
     return successCallback(database, JSON.parse(fs.readFileSync(circuitPath)), circuitPath);
 }
 
-app.post("/createAccount", (req, resp) => {
+function postCreateAccount(req, resp) {
     let username = req.body.username;
     let password = req.body.password;
 
     // First check username is alphanumeric
-    if (!isValidText(username)) return resp.status(401).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
+    if (!isValidText(username)) return resp.status(400).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
 
     let database = readDatabase();
 
     // Check username isn't taken already
     if (username in database) {
-        return resp.status(401).send(responseJSON(USERNAME_TAKEN_MESSAGE));
+        return resp.status(400).send(responseJSON(USERNAME_TAKEN_MESSAGE));
     }
 
     // Check for a valid passsword    
-    if (!isValidPassword(password)) return resp.status(401).send(responseJSON(PASSWORD_TOO_SHORT_MESSAGE));
+    if (!isValidPassword(password)) return resp.status(400).send(responseJSON(PASSWORD_TOO_SHORT_MESSAGE));
 
     // All checks passed!
     // Hash and store password
@@ -144,22 +142,22 @@ app.post("/createAccount", (req, resp) => {
     fs.writeFileSync(`secrets/circuits/${username}.json`, "{}");
 
     writeDatabase(database);
-});
+}
 
-app.post("/login", (req, resp) => {
+function postLogin(req, resp) {
     let username = req.body.username;
     // This isn't a HTTPS server, so we're just sending the password unencrypted, so while we may have safe password storage, we're
     // vulnerable to man-in-the-middle attacks (I think?) with both passwords and session tokens
     let password = req.body.password;
 
-    if (!isValidText(username)) return resp.status(401).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
+    if (!isValidText(username)) return resp.status(400).send(responseJSON(USERNAME_ALPHANUMERIC_MESSAGE));
 
     // Lookup username in our "database"
     let database = readDatabase();
     
     let userData = database[username];
 
-    if (userData == undefined) return resp.status(401).send(responseJSON(USER_DOESNT_EXIST_MESSAGE));
+    if (userData == undefined) return resp.status(404).send(responseJSON(USER_DOESNT_EXIST_MESSAGE));
 
     let hashedPassword = userData.password;
 
@@ -175,13 +173,15 @@ app.post("/login", (req, resp) => {
         resp.status(200).send({"sessionToken": sessionToken});
     }
     else {
-        return resp.status(403).send(responseJSON(PASSWORD_HASH_NO_MATCH_MESSAGE));
+        return resp.status(400).send(responseJSON(PASSWORD_HASH_NO_MATCH_MESSAGE));
     }
 
     writeDatabase(database);
-});
+}
 
-app.get("/getUsers", (req, resp) => {
+function getUsers(req, resp) {
+    console.log("Recieved request");
+
     let database = readDatabase();
 
     let userData = [];
@@ -196,9 +196,9 @@ app.get("/getUsers", (req, resp) => {
     }
     
     resp.status(200).send(userData);
-});
+}
 
-app.get("/getUser", (req, resp) => {
+function getUser(req, resp) {
     let username = req.query.username;
 
     return getCircuitFile(username, resp, (database, circuitFile, path) => {
@@ -220,9 +220,9 @@ app.get("/getUser", (req, resp) => {
 
         return resp.status(200).send(circuitMetricData);
     });
-});
+}
 
-app.get("/getCircuits", (req, resp) => {
+function getCircuits(req, resp) {
     let username = req.query.username;
 
     return getCircuitFile(username, resp, (database, circuitFile, path) => {
@@ -233,9 +233,9 @@ app.get("/getCircuits", (req, resp) => {
     
         return resp.status(200).send({"circuitNames": circuitNames});
     });
-});
+}
 
-app.get("/getCircuit", (req, resp) => {
+function getCircuit(req, resp) {
     let username = req.query.username;
     let circuitName = req.query.circuitName;
 
@@ -253,23 +253,23 @@ app.get("/getCircuit", (req, resp) => {
     
         return resp.status(200).send({"name": circuitName, "data": circuitFile[circuitName]});
     });
-})
+}
 
-app.post("/saveCircuit", (req, resp) => {
+function postSaveCircuit(req, resp) {
     let username = req.body.username;
     let sessionToken = req.body.sessionToken;
     let circuitName = req.body.circuitName;
     let circuitData = req.body.circuitData;
 
-    if (username == null || sessionToken == null) return resp.status(403).send(responseJSON(NOT_LOGGED_IN_MESSAGE));
-    if (!isValidText(circuitName)) return resp.status(401).send(responseJSON(CIRCUIT_ALPHANUMERIC_MESSAGE));
+    if (username == null || sessionToken == null) return resp.status(401).send(responseJSON(NOT_LOGGED_IN_MESSAGE));
+    if (!isValidText(circuitName)) return resp.status(400).send(responseJSON(CIRCUIT_ALPHANUMERIC_MESSAGE));
     
     // mini-callback hell
     return validateSession(username, sessionToken, resp, () => {
-        if (!isValidText(username)) return resp.status(401).send(wrapJSON(USERNAME_ALPHANUMERIC_MESSAGE));
+        if (!isValidText(username)) return resp.status(400).send(wrapJSON(USERNAME_ALPHANUMERIC_MESSAGE));
 
         return getCircuitFile(username, resp, (database, circuitFile, path) => {
-            if (circuitName in circuitFile) return resp.status(401).send(responseJSON(CIRCUIT_NAME_TAKEN_MESSAGE));
+            if (circuitName in circuitFile) return resp.status(400).send(responseJSON(CIRCUIT_NAME_TAKEN_MESSAGE));
 
             circuitFile[circuitName] = {
                 "circuits": circuitData.circuits,
@@ -283,10 +283,15 @@ app.post("/saveCircuit", (req, resp) => {
             return resp.status(200).send(responseJSON(CIRCUIT_SAVED_SUCESSFULLY_MESSAGE));
         });
     });
-});
+}
 
-const PORT = 8090;
+app.post("/createAccount", postCreateAccount);
+app.post("/login", postLogin);
+app.get("/getUsers", getUsers);
+app.get("/getUser", getUser);
 
-app.listen(PORT, () => {
-    console.log(`Started at 127.0.0.1:${PORT}`)
-});
+app.get("/getCircuits", getCircuits);
+app.get("/getCircuit", getCircuit)
+app.post("/saveCircuit", postSaveCircuit);
+
+module.exports = { "app": app, "isValidPassword": isValidPassword, "isValidText": isValidText, "responseJSON": responseJSON };

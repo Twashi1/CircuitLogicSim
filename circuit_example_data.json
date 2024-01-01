@@ -1,0 +1,101 @@
+{
+    "NAND": {
+        "circuits": {
+            "18311311": {
+                "name": "NOT",
+                "color": "#8c1e7e",
+                "position": [
+                    0.5824782951854776,
+                    0.4901853015075377
+                ],
+                "inputLabels": [
+                    "A"
+                ],
+                "outputLabels": [
+                    "B"
+                ],
+                "inputValues": [
+                    false
+                ],
+                "outputValues": [
+                    true
+                ],
+                "links": [],
+                "type": 2,
+                "representation": null
+            },
+            "59937316": {
+                "name": "AND",
+                "color": "#9d6a67",
+                "position": [
+                    0.409629044988161,
+                    0.49897927135678394
+                ],
+                "inputLabels": [
+                    "A",
+                    "B"
+                ],
+                "outputLabels": [
+                    "C"
+                ],
+                "inputValues": [
+                    false,
+                    false
+                ],
+                "outputValues": [
+                    false
+                ],
+                "links": [
+                    {
+                        "circuit": "18311311",
+                        "input": 0,
+                        "output": 0
+                    }
+                ],
+                "type": 0,
+                "representation": null
+            }
+        },
+        "inputNodes": {
+            "622016": {
+                "state": false,
+                "links": [
+                    {
+                        "circuit": "59937316",
+                        "input": null,
+                        "output": 1
+                    }
+                ],
+                "position": 0.5241048994974874,
+                "name": "None"
+            },
+            "1213078": {
+                "state": false,
+                "links": [
+                    {
+                        "circuit": "59937316",
+                        "input": null,
+                        "output": 0
+                    }
+                ],
+                "position": 0.4122958542713568,
+                "name": "None"
+            }
+        },
+        "outputNodes": {
+            "35704951": {
+                "state": true,
+                "links": [
+                    {
+                        "circuit": "18311311",
+                        "input": 0,
+                        "output": null
+                    }
+                ],
+                "position": 0.46757223618090454,
+                "name": "None"
+            }
+        },
+        "downloads": 3
+    }
+}
