@@ -1,3 +1,3 @@
 # logicsim
 
-Logic simulator written in JS
+Logic gate simulator written in JS

@@ -218,7 +218,7 @@ Send the user to `/getUsers` in a web browser:
 
 #### Example response
 
-`[{"name": "thomas", "downloads": 3}, {"name": "thomas2", "downloads": 5}]`
+`[{"name": "thomas", "totalDownloads": 3}, {"name": "thomas2", "totalDownloads": 5}]`
 
 ### GET /getUser
 
@@ -369,7 +369,7 @@ Create a new account
 #### Example request
 
 Send the user to `/createAccount` in a web browser, including the username, and password parameters:
-`127.0.0.1:8090/login?username=thomasNew&password=password123`
+`127.0.0.1:8090/createAccount?username=thomasNew&password=password123`
 
 #### Example response
 
