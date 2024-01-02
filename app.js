@@ -180,8 +180,6 @@ function postLogin(req, resp) {
 }
 
 function getUsers(req, resp) {
-    console.log("Recieved request");
-
     let database = readDatabase();
 
     let userData = [];
