@@ -201,10 +201,6 @@ function getUser (req, resp) {
   const username = req.query.username;
 
   return getCircuitFile(username, resp, (database, circuitFile, path) => {
-    const circuitNames = Object.keys(circuitFile);
-
-    if (circuitNames.length === 0) { return resp.status(404).send(responseJSON(USER_NO_SAVED_CIRCUITS_MESSAGE)); }
-
     const circuitMetricData = [];
 
     for (const circuitName in circuitFile) {

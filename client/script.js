@@ -1,7 +1,5 @@
 // https://stackoverflow.com/questions/950087/how-do-i-include-a-javascript-file-in-another-javascript-file
 
-// TODO: exception handling (throw random exceptions)
-
 // TODO: ordering of nodes not preserved
 //      TODO: input nodes and output nodes should just be an array
 //      TODO: we then sort this array based on y position
@@ -215,7 +213,7 @@ function login (event) {
                 document.getElementById('loginResponse').innerText = `Error ${response.status}: ${json.response}`;
                 break;
         }
-    });
+    }).catch(() => couldntConnectToServer('loginResponse'));
 }
 
 function register (event) {
@@ -240,7 +238,7 @@ function register (event) {
                 document.getElementById('registerResponse').innerText = `Error ${response.status}: ${json.response}`;
                 break;
         }
-    });
+    }).catch(() => couldntConnectToServer('registerResponse'));
 }
 
 function addFade (element) {
@@ -277,7 +275,15 @@ function saveCircuit (event) {
         if (!isError) { importCircuit(circuitName, JSON.parse(JSON.stringify(formData.circuitData))); }
 
         addFade(responseElement);
-    });
+    }).catch(() => couldntConnectToServer('responseText'));
+}
+
+function couldntConnectToServer (responseElementID) {
+    const responseElement = document.getElementById(responseElementID);
+    responseElement.innerText = "Error: Couldn't connect to server";
+    responseElement.style.color = 'red';
+
+    addFade(responseElement);
 }
 
 function getCircuits (event) {
@@ -315,7 +321,7 @@ function getCircuits (event) {
                 importDownloadCircuit(username, circuitName);
             }
         }
-    });
+    }).catch(() => couldntConnectToServer('responseText'));
 }
 
 function compareConfirmPassword () {
@@ -675,7 +681,7 @@ function downloadCircuit (username, circuitName) {
         } else {
             return null;
         }
-    });
+    }).catch(() => couldntConnectToServer('responseText'));
 }
 
 function importDownloadCircuit (username, circuitName) {
@@ -1041,8 +1047,7 @@ function generateID (object) {
     }
 
     if (newID == null) {
-        // TODO: something other than big error
-        console.log('Big error, failed to generate an ID');
+        throw Error("Couldn't generate a new ID - too many attributes?");
     }
 
     return newID;
@@ -1351,7 +1356,6 @@ function hideRenameOverlay () {
 }
 
 function cancelRename () {
-    // TODO: might not clear properly, might clear placeholder value as well
     document.getElementById('renameInputBox').value = '';
     hideRenameOverlay();
 }
@@ -1416,7 +1420,7 @@ function getOrderedUserList () {
         }
     ).then(async response => {
         return response.json();
-    });
+    }).catch(() => couldntConnectToServer('responseText'));
 }
 
 async function getUserRankings () {
@@ -1494,9 +1498,9 @@ function getUserCircuitList (username) {
         if (!isError) {
             return json;
         } else {
-            return [];
+            return null;
         }
-    });
+    }).catch(() => couldntConnectToServer('responseText'));
 }
 
 let currentFurtherUserDetailsUsername = null;
@@ -1507,8 +1511,8 @@ async function showFurtherUserDetails (username) {
     const circuitList = await getUserCircuitList(username);
     circuitList.sort((a, b) => b.downloads - a.downloads);
 
-    // TODO: could probably display some error message inside the div
-    if (circuitList.length === 0) { return document.getElementById('userMoreDetailsDiv').classList.add('hidden'); }
+    // Some error occured
+    if (circuitList === null) { return document.getElementById('userMoreDetailsDiv').classList.add('hidden'); }
 
     document.getElementById('userMoreDetailsDiv').classList.remove('hidden');
 
@@ -1517,12 +1521,16 @@ async function showFurtherUserDetails (username) {
     const circuitElementList = document.getElementById('userMoreDetailsList');
     circuitElementList.innerHTML = '';
 
-    for (const circuitIndex in circuitList) {
-        const circuitMetrics = circuitList[circuitIndex];
+    if (circuitList.length > 0) {
+        for (const circuitIndex in circuitList) {
+            const circuitMetrics = circuitList[circuitIndex];
 
-        // Should do fancy html node stuff instead
-        // https://www.w3schools.com/jsref/met_node_appendchild.asp
-        circuitElementList.innerHTML += `<li><b>${circuitMetrics.circuitName}</b> with <b>${circuitMetrics.downloads}</b> downloads</li>`;
+            // Should do fancy html node stuff instead
+            // https://www.w3schools.com/jsref/met_node_appendchild.asp
+            circuitElementList.innerHTML += `<li><b>${circuitMetrics.circuitName}</b> with <b>${circuitMetrics.downloads}</b> downloads</li>`;
+        }
+    } else {
+        circuitElementList.innerText = 'No circuits found';
     }
 }
 
@@ -1535,7 +1543,7 @@ async function getFurtherUserDetails (event) {
 
 function refreshUserList () {
     getUserRankings();
-    showFurtherUserDetails(currentFurtherUserDetailsUsername);
+    if (currentFurtherUserDetailsUsername !== null) showFurtherUserDetails(currentFurtherUserDetailsUsername);
 }
 
 document.addEventListener('DOMContentLoaded', () => {

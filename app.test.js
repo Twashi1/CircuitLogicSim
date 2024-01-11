@@ -217,8 +217,8 @@ describe('GET /getUser', () => {
     return request(app.app).get('/getUser?username=foo').send().expect(404).expect('Content-type', /json/);
   });
 
-  test('fails when user has no circuits', () => {
-    return request(app.app).get('/getUser?username=thomas2').send().expect(404).expect('Content-type', /json/);
+  test('no error when user has no circuits', () => {
+    return request(app.app).get('/getUser?username=thomas2').send().expect(200).expect('Content-type', /json/);
   });
 });
 

@@ -1,8 +1,2 @@
-package.json
-package-lock.json
 node_modules/
-secrets/
-# TODO: This one is pretty bad
-*.json
-!circuit_example_data.json
 coverage/
